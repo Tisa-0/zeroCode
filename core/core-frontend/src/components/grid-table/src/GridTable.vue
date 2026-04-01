@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { reactive, ref, computed, watch, nextTick, onBeforeMount, useAttrs } from 'vue'
+import { reactive, ref, computed, watch, nextTick, onBeforeMount, useAttrs, useSlots } from 'vue'
 import { ElTable, ElPagination } from 'element-plus-secondary'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
 import TableBody from './TableBody.vue'

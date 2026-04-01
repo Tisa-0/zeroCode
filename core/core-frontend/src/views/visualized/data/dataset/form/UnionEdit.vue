@@ -37,6 +37,26 @@ const defaultNode = {
   isShadow: false,
   flag: ''
 }
+
+const normalizeUnionType = (val?: string): UnionType => {
+  switch (val) {
+    case '1:1':
+      return 'inner'
+    case '1:N':
+      return 'left'
+    case 'N:1':
+      return 'right'
+    case 'N:N':
+      return 'full'
+    case 'left':
+    case 'right':
+    case 'full':
+    case 'inner':
+      return val
+    default:
+      return 'left'
+  }
+}
 const parentField = ref<Field[]>([])
 const nodeField = ref<Field[]>([])
 const node = reactive<Node>(cloneDeep(defaultNode))
@@ -65,6 +85,7 @@ const initState = () => {
   parent.flag = ''
   Object.assign(node, cloneDeep(props.editArr[0]))
   Object.assign(parent, cloneDeep(props.editArr[1]))
+  node.unionType = normalizeUnionType(node.unionType)
   getFields()
 }
 

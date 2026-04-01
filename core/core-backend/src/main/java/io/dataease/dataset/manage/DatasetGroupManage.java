@@ -35,6 +35,8 @@ import jakarta.annotation.Resource;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +51,7 @@ import java.util.stream.Collectors;
 @Component
 @Transactional(rollbackFor = Exception.class)
 public class DatasetGroupManage {
+    private static final Logger logger = LoggerFactory.getLogger(DatasetGroupManage.class);
     @Resource
     private CoreDatasetGroupMapper coreDatasetGroupMapper;
     @Resource
@@ -101,7 +104,23 @@ public class DatasetGroupManage {
                 if (ObjectUtils.isNotEmpty(sqlMap)) {
                     String sql = (String) sqlMap.get("sql");
                     datasetGroupInfoDTO.setUnionSql(sql);
-                    datasetGroupInfoDTO.setInfo(Objects.requireNonNull(JsonUtil.toJSONString(datasetGroupInfoDTO.getUnion())).toString());
+                    // 结果集落盘：若有排序/画布信息，则存为 { union, sortFields?, graphState? }，否则仅存 union 数组以兼容旧数据
+                    if (ObjectUtils.isNotEmpty(datasetGroupInfoDTO.getSortFields())
+                            || datasetGroupInfoDTO.getGraphState() != null) {
+                        Map<String, Object> infoMap = new LinkedHashMap<>();
+                        infoMap.put("union", datasetGroupInfoDTO.getUnion());
+                        if (ObjectUtils.isNotEmpty(datasetGroupInfoDTO.getSortFields())) {
+                            infoMap.put("sortFields", datasetGroupInfoDTO.getSortFields());
+                        }
+                        if (datasetGroupInfoDTO.getGraphState() != null) {
+                            infoMap.put("graphState", datasetGroupInfoDTO.getGraphState());
+                        }
+                        datasetGroupInfoDTO.setInfo((String) JsonUtil.toJSONString(infoMap));
+                    } else {
+                        datasetGroupInfoDTO.setInfo(
+                                Objects.requireNonNull(JsonUtil.toJSONString(datasetGroupInfoDTO.getUnion()))
+                                        .toString());
+                    }
                 }
             }
             // save dataset/group
@@ -359,8 +378,7 @@ public class DatasetGroupManage {
         DatasetGroupInfoDTO dto = new DatasetGroupInfoDTO();
         BeanUtils.copyBean(dto, coreDatasetGroup);
         if (StringUtils.equalsIgnoreCase(dto.getNodeType(), "dataset")) {
-            dto.setUnion(JsonUtil.parseList(coreDatasetGroup.getInfo(), new TypeReference<>() {
-            }));
+            applyDatasetInfo(coreDatasetGroup, dto);
             // 获取field
             List<DatasetTableFieldDTO> dsFields = datasetTableFieldManage.selectByDatasetGroupId(id);
             List<DatasetTableFieldDTO> allFields = dsFields.stream().map(ele -> {
@@ -397,10 +415,7 @@ public class DatasetGroupManage {
         }
         dto.setUnionSql(null);
         if (StringUtils.equalsIgnoreCase(dto.getNodeType(), "dataset")) {
-            List<UnionDTO> unionDTOList = JsonUtil.parseList(coreDatasetGroup.getInfo(), new TypeReference<>() {
-            });
-            dto.setUnion(unionDTOList);
-
+            applyDatasetInfo(coreDatasetGroup, dto);
             // 获取field
             List<DatasetTableFieldDTO> dsFields = datasetTableFieldManage.selectByDatasetGroupId(id);
             List<DatasetTableFieldDTO> allFields = dsFields.stream().map(ele -> {
@@ -433,10 +448,7 @@ public class DatasetGroupManage {
         }
         dto.setUnionSql(null);
         if (StringUtils.equalsIgnoreCase(dto.getNodeType(), "dataset")) {
-            List<UnionDTO> unionDTOList = JsonUtil.parseList(coreDatasetGroup.getInfo(), new TypeReference<>() {
-            });
-            dto.setUnion(unionDTOList);
-
+            applyDatasetInfo(coreDatasetGroup, dto);
             // 获取field
             List<DatasetTableFieldDTO> dsFields = datasetTableFieldManage.selectByDatasetGroupId(id);
             List<DatasetTableFieldDTO> allFields = dsFields.stream().map(ele -> {
@@ -534,6 +546,38 @@ public class DatasetGroupManage {
         ids.add(parent.getId());
         if (parent.getPid() != null && parent.getPid() != 0) {
             getParents(parent.getPid(), ids);
+        }
+    }
+
+    /** 解析 dataset info：兼容旧版纯 union 数组与新版 { union, sortFields } 对象 */
+    private void applyDatasetInfo(CoreDatasetGroup coreDatasetGroup, DatasetGroupInfoDTO dto) {
+        String info = coreDatasetGroup.getInfo();
+        logger.info("[applyDatasetInfo] id={}, info length={}", coreDatasetGroup.getId(),
+                info != null ? info.length() : 0);
+        if (StringUtils.isEmpty(info)) return;
+        String trimmed = info.trim();
+        if (trimmed.startsWith("[")) {
+            dto.setUnion(JsonUtil.parseList(info, new TypeReference<>() {}));
+            dto.setSortFields(null);
+            logger.info("[applyDatasetInfo] legacy array format, no graphState");
+        } else if (trimmed.startsWith("{")) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> infoMap = JsonUtil.parseObject(info, Map.class);
+            if (infoMap != null) {
+                dto.setUnion(JsonUtil.parseList((String) JsonUtil.toJSONString(infoMap.get("union")), new TypeReference<>() {}));
+                Object sf = infoMap.get("sortFields");
+                dto.setSortFields(sf != null ? JsonUtil.parseList((String) JsonUtil.toJSONString(sf), new TypeReference<List<io.dataease.api.chart.dto.DeSortField>>() {}) : null);
+                Object graph = infoMap.get("graphState");
+                logger.info("[applyDatasetInfo] infoMap keys={}, graphState type={}, graphState isNull={}",
+                        infoMap.keySet(), graph != null ? graph.getClass().getSimpleName() : "null", graph == null);
+                if (graph instanceof Map) {
+                    dto.setGraphState((Map<String, Object>) graph);
+                    logger.info("[applyDatasetInfo] graphState set on DTO successfully");
+                } else {
+                    logger.warn("[applyDatasetInfo] graphState is NOT a Map, actual type: {}",
+                            graph != null ? graph.getClass().getName() : "null");
+                }
+            }
         }
     }
 

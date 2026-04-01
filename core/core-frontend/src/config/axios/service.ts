@@ -192,8 +192,9 @@ service.interceptors.response.use(
           router.push(`/login?redirect=${queryRedirectPath}`)
         }
       } else if (response?.config?.url.startsWith('/xpackComponent/content')) {
-        console.error(
-          "never mind this error about '/xpackComponent/content', just a reminder to support the official license"
+        // 开源版无 xpack 接口，404 为正常，仅作调试提示
+        console.debug(
+          "[DataEase] xpackComponent/content 返回非成功：开源版可忽略，商业版请使用正式授权。"
         )
       }
 
@@ -202,6 +203,12 @@ service.interceptors.response.use(
   },
   (error: AxiosErrorWidthLoading<AxiosError>) => {
     if (!error?.response) {
+      // 网络错误 / 超时 / 取消：给出提示再 reject，让调用方能感知错误
+      ElMessage({
+        type: 'error',
+        message: error.message || '网络异常，请稍后重试',
+        showClose: true
+      })
       return Promise.reject(error)
     }
     const header = error.response?.headers as AxiosHeaders
@@ -216,8 +223,9 @@ service.interceptors.response.use(
         showClose: true
       })
     } else if (error?.config?.url.startsWith('/xpackComponent/content')) {
-      console.error(
-        "never mind this error about '/xpackComponent/content', just a reminder to support the official license"
+      // 开源版无 xpack 接口，404 为正常，仅作调试提示
+      console.debug(
+        "[DataEase] xpackComponent/content 请求 404：开源版可忽略，商业版请使用正式授权。"
       )
     }
 
@@ -235,7 +243,7 @@ service.interceptors.response.use(
     if (header.has('DE-FORBIDDEN-FLAG')) {
       showMsg('当前用户权限配置已变更，请刷新页面', '-changed-')
     }
-    return Promise.resolve()
+    return Promise.reject(error)
   }
 )
 

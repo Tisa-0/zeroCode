@@ -59,7 +59,7 @@ public class ExportCenterManage {
     @Value("${export.dataset.limit:100000}")
     private int limit;
     private final static String DATA_URL_TITLE = "data:image/jpeg;base64,";
-    private static final String exportData_path = "/opt/dataease2.0/data/exportData/";
+    private static final String exportData_path = "E:/BI/dataEase/dataease-data/exportData/";
     @Value("${extract.page.size:50000}")
     private Integer extractPageSize;
     static private List<String> STATUS = Arrays.asList("SUCCESS", "FAILED", "PENDING", "IN_PROGRESS", "ALL");

@@ -114,7 +114,11 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  codeCom.value.destroy?.()
+  try {
+    codeCom.value?.destroy?.()
+  } catch (_) {
+    // 避免卸载时无活跃实例导致的 Vue warn
+  }
 })
 
 const gridData = ref([])

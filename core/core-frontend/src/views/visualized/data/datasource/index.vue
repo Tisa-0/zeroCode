@@ -432,6 +432,9 @@ const listDs = () => {
     .finally(() => {
       mounted.value = true
       dsLoading.value = false
+      if (!state.datasourceTree.length) {
+        rootManage.value = true
+      }
       updateTreeExpand()
       const id = nodeInfo.id
       if (!!id) {
@@ -541,7 +544,9 @@ const handleNodeClick = data => {
   })
 }
 const createDatasource = (data?: Tree) => {
-  datasourceEditor.value.init(null, data?.id)
+  nextTick(() => {
+    datasourceEditor.value?.init(null, data?.id)
+  })
 }
 const showRecord = ref(false)
 const dsListTree = ref()
@@ -846,7 +851,9 @@ onMounted(() => {
   listDs()
   const { opt } = router.currentRoute.value.query
   if (opt && opt === 'create') {
-    datasourceEditor.value.init(null, null)
+    nextTick(() => {
+      datasourceEditor.value?.init(null, null)
+    })
   }
 })
 

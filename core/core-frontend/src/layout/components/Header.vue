@@ -142,7 +142,7 @@ onMounted(() => {
       :ellipsis="false"
       @select="handleSelect"
     >
-      <HeaderMenuItem v-for="menu in routers" :key="menu.path" :menu="menu"></HeaderMenuItem>
+      <HeaderMenuItem v-for="(menu, idx) in routers.filter(m => m)" :key="menu?.path ?? menu?.name ?? idx" :menu="menu"></HeaderMenuItem>
     </el-menu>
     <div class="operate-setting" v-if="!desktop">
       <XpackComponent jsname="c3dpdGNoZXI=" />

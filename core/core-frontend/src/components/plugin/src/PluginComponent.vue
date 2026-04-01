@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import noLic from './nolic.vue'
-import { ref, useAttrs, onMounted } from 'vue'
+import { shallowRef, ref, useAttrs, onMounted } from 'vue'
 import { execute, randomKey, formatArray } from './convert'
 import { loadPluginApi, xpackModelApi } from '@/api/plugin'
 import { useCache } from '@/hooks/web/useCache'
@@ -13,7 +13,7 @@ import { useEmitt } from '@/hooks/web/useEmitt'
 import request from '@/config/axios'
 const { wsCache } = useCache()
 
-const plugin = ref()
+const plugin = shallowRef()
 
 const loading = ref(false)
 

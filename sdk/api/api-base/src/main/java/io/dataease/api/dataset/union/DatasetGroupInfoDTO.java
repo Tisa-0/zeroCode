@@ -17,6 +17,9 @@ public class DatasetGroupInfoDTO extends DatasetNodeDTO {
 
     private List<DeSortField> sortFields;// 自定义排序（如仪表板查询组件）
 
+    // 画布布局信息：节点位置、连线等（仅前端使用，统一由 info 字段 JSON 持久化）
+    private Map<String, Object> graphState;
+
     private Map<String, List> data;
 
     private List<DatasetTableFieldDTO> allFields;

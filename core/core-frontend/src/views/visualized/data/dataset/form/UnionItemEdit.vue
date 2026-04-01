@@ -33,12 +33,32 @@ const props = defineProps({
 const unionOptions = [
   { label: t('dataset.left_join'), value: 'left' },
   { label: t('dataset.right_join'), value: 'right' },
-  { label: t('dataset.inner_join'), value: 'inner' },
-  { label: t('dataset.full_join'), value: 'full' }
+  { label: t('dataset.full_join'), value: 'full' },
+  { label: t('dataset.inner_join'), value: 'inner' }
 ]
 
+const normalizeUnionType = (val?: string) => {
+  switch (val) {
+    case '1:1':
+      return 'inner'
+    case '1:N':
+      return 'left'
+    case 'N:1':
+      return 'right'
+    case 'N:N':
+      return 'full'
+    case 'left':
+    case 'right':
+    case 'full':
+    case 'inner':
+      return val
+    default:
+      return 'left'
+  }
+}
+
 const init = () => {
-  unionTypeFromParent.value = props.node.unionType
+  unionTypeFromParent.value = normalizeUnionType(props.node.unionType)
   if (props.node.unionFields.length < 1) {
     addUnion()
   }
@@ -62,7 +82,7 @@ init()
         <el-select
           v-model="unionTypeFromParent"
           class="union-selector"
-          @change="emit('changeUnionType', unionTypeFromParent)"
+          @change="emit('changeUnionType', normalizeUnionType(unionTypeFromParent))"
         >
           <template #prefix>
             <el-icon>

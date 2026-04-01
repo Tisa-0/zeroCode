@@ -82,7 +82,14 @@ public class DatasetDataManage {
         List<DatasetTableFieldDTO> list = null;
         List<TableField> tableFields = null;
         String type = datasetTableDTO.getType();
-        DatasetTableInfoDTO tableInfoDTO = JsonUtil.parseObject(datasetTableDTO.getInfo(), DatasetTableInfoDTO.class);
+        DatasetTableInfoDTO tableInfoDTO = StringUtils.isNotEmpty(datasetTableDTO.getInfo())
+                ? JsonUtil.parseObject(datasetTableDTO.getInfo(), DatasetTableInfoDTO.class) : null;
+        // 使用 null-safe 方法，避免 NPE: Cannot invoke "DatasetTableInfoDTO.getTable()" because "tableInfoDTO" is null
+        String tableName = DatasetTableInfoDTO.getTableSafe(tableInfoDTO);
+        String sqlEncoded = DatasetTableInfoDTO.getSqlSafe(tableInfoDTO);
+        if (tableName == null && sqlEncoded == null) {
+            DEException.throwException("数据集节点的表信息为空(tableInfoDTO is null)，请检查数据集配置是否完整。数据集ID: " + datasetTableDTO.getId());
+        }
         if (StringUtils.equalsIgnoreCase(type, DatasetTableType.DB) || StringUtils.equalsIgnoreCase(type, DatasetTableType.SQL)) {
             CoreDatasource coreDatasource = coreDatasourceMapper.selectById(datasetTableDTO.getDatasourceId());
             DatasourceSchemaDTO datasourceSchemaDTO = new DatasourceSchemaDTO();
@@ -100,32 +107,33 @@ public class DatasetDataManage {
             datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
             String sql;
             if (StringUtils.equalsIgnoreCase(type, DatasetTableType.DB)) {
-                // add table schema
-                sql = TableUtils.tableName2Sql(datasourceSchemaDTO, tableInfoDTO.getTable()) + " LIMIT 0 OFFSET 0";
-                // replace schema alias, trans dialect
+                if (StringUtils.isEmpty(tableName)) {
+                    DEException.throwException("DB类型数据集节点的表名为空，请检查数据集配置。数据集ID: " + datasetTableDTO.getId());
+                }
+                sql = TableUtils.tableName2Sql(datasourceSchemaDTO, tableName) + " LIMIT 0 OFFSET 0";
                 sql = Utils.replaceSchemaAlias(sql, datasourceRequest.getDsList());
                 sql = provider.transSqlDialect(sql, datasourceRequest.getDsList());
             } else {
-                // parser sql params and replace default value
-                String originSql = SqlparserUtils.handleVariableDefaultValue(new String(Base64.getDecoder().decode(tableInfoDTO.getSql())), datasetTableDTO.getSqlVariableDetails(), false, false, null, false, datasourceRequest.getDsList(), pluginManage);
-                // add sql table schema
-
+                if (StringUtils.isEmpty(sqlEncoded)) {
+                    DEException.throwException("SQL类型数据集节点的SQL为空，请检查数据集配置。数据集ID: " + datasetTableDTO.getId());
+                }
+                String originSql = SqlparserUtils.handleVariableDefaultValue(new String(Base64.getDecoder().decode(sqlEncoded)), datasetTableDTO.getSqlVariableDetails(), false, false, null, false, datasourceRequest.getDsList(), pluginManage);
                 sql = SQLUtils.buildOriginPreviewSql(SqlPlaceholderConstants.TABLE_PLACEHOLDER, 0, 0);
                 sql = provider.transSqlDialect(sql, datasourceRequest.getDsList());
-                // replace placeholder
                 sql = provider.replaceTablePlaceHolder(sql, originSql);
             }
             datasourceRequest.setQuery(sql.replaceAll("\r\n", " ")
                     .replaceAll("\n", " "));
             logger.info("calcite data table field sql: " + datasourceRequest.getQuery());
-            // 获取数据源表的原始字段
             if (StringUtils.equalsIgnoreCase(type, DatasetTableType.DB)) {
-                datasourceRequest.setTable(tableInfoDTO.getTable());
+                datasourceRequest.setTable(tableName);
             }
 
             tableFields = provider.fetchTableField(datasourceRequest);
         } else {
-            // excel,api
+            if (StringUtils.isEmpty(tableName)) {
+                DEException.throwException("数据集节点的表名为空，请检查数据集配置。数据集ID: " + datasetTableDTO.getId());
+            }
             CoreDatasource coreDatasource = engineManage.getDeEngine();
             DatasourceSchemaDTO datasourceSchemaDTO = new DatasourceSchemaDTO();
             BeanUtils.copyBean(datasourceSchemaDTO, coreDatasource);
@@ -134,7 +142,7 @@ public class DatasetDataManage {
 
             DatasourceRequest datasourceRequest = new DatasourceRequest();
             datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
-            String sql = TableUtils.tableName2Sql(datasourceSchemaDTO, tableInfoDTO.getTable()) + " LIMIT 0 OFFSET 0";
+            String sql = TableUtils.tableName2Sql(datasourceSchemaDTO, tableName) + " LIMIT 0 OFFSET 0";
             // replace schema alias, trans dialect
             sql = Utils.replaceSchemaAlias(sql, datasourceRequest.getDsList());
             sql = provider.transSqlDialect(sql, datasourceRequest.getDsList());
@@ -182,6 +190,27 @@ public class DatasetDataManage {
 
         buildFieldName(sqlMap, fields);
 
+        // 对预览字段进行一次“有效性”过滤：
+        // 仅保留 inner union 实际输出的字段（sqlMap.field 中存在的 dataeaseName），
+        // 避免因 allFields 中残留了已删除/未选中的字段而生成
+        // t_a_0.f_xxx 这类在内层结果集中不存在的列，导致 "Unknown column 't_a_0.f_xxx' in 'field list'"。
+        Object unionFieldObj = sqlMap.get("field");
+        if (unionFieldObj instanceof List) {
+            List<DatasetTableFieldDTO> unionFields = (List<DatasetTableFieldDTO>) unionFieldObj;
+            if (!CollectionUtils.isEmpty(unionFields)) {
+                Set<String> unionAliases = unionFields.stream()
+                        .map(DatasetTableFieldDTO::getDataeaseName)
+                        .filter(StringUtils::isNotEmpty)
+                        .collect(Collectors.toSet());
+                if (!CollectionUtils.isEmpty(unionAliases)) {
+                    fields = fields.stream()
+                            .filter(f -> StringUtils.isNotEmpty(f.getDataeaseName())
+                                    && unionAliases.contains(f.getDataeaseName()))
+                            .collect(Collectors.toList());
+                }
+            }
+        }
+
         Map<Long, DatasourceSchemaDTO> dsMap = (Map<Long, DatasourceSchemaDTO>) sqlMap.get("dsMap");
         DatasourceUtils.checkDsStatus(dsMap);
         List<String> dsList = new ArrayList<>();
@@ -191,7 +220,10 @@ public class DatasetDataManage {
         boolean needOrder = Utils.isNeedOrder(dsList);
         boolean crossDs = Utils.isCrossDs(dsMap);
         if (!crossDs) {
-            if (notFullDs.contains(dsMap.entrySet().iterator().next().getValue().getType()) && (boolean) sqlMap.get("isFullJoin")) {
+            boolean fullJoinSimulated = Boolean.TRUE.equals(sqlMap.get("fullJoinSimulated"));
+            if (notFullDs.contains(dsMap.entrySet().iterator().next().getValue().getType())
+                    && Boolean.TRUE.equals(sqlMap.get("isFullJoin"))
+                    && !fullJoinSimulated) {
                 DEException.throwException(Translator.get("i18n_not_full"));
             }
             sql = Utils.replaceSchemaAlias(sql, dsMap);
@@ -210,12 +242,16 @@ public class DatasetDataManage {
             provider = ProviderFactory.getProvider(dsList.getFirst());
         }
 
+        // 解析 sortFields：使用 buildFieldName 后与内层 union 输出一致的 dataeaseName，避免 ORDER BY 列名不存在
+        List<DeSortField> resolvedSortFields = resolveSortFieldsForPreview(
+                datasetGroupInfoDTO.getSortFields(), fields);
+
         // build query sql
         SQLMeta sqlMeta = new SQLMeta();
         Table2SQLObj.table2sqlobj(sqlMeta, null, "(" + sql + ")", crossDs);
         Field2SQLObj.field2sqlObj(sqlMeta, fields, fields, crossDs, dsMap);
         WhereTree2Str.transFilterTrees(sqlMeta, rowPermissionsTree, fields, crossDs, dsMap);
-        Order2SQLObj.getOrders(sqlMeta, datasetGroupInfoDTO.getSortFields(), fields, crossDs, dsMap);
+        Order2SQLObj.getOrders(sqlMeta, resolvedSortFields, fields, crossDs, dsMap);
         String querySQL;
         if (start == null || count == null) {
             querySQL = SQLProvider.createQuerySQL(sqlMeta, false, needOrder, false);
@@ -236,6 +272,20 @@ public class DatasetDataManage {
         Map<String, Object> map = new LinkedHashMap<>();
         // 重新构造data
         Map<String, Object> previewData = buildPreviewData(data, fields, desensitizationList);
+
+        // 若是已保存的数据集预览，且存在画布编排信息（graphState），则根据图中的抽样操作节点
+        // 对预览结果进行一次行数裁剪，保证“数据集页面预览的数据”与结果集中抽样后的数据条数一致。
+        logger.info("[previewDataWithLimit] id={}, graphState isNull={}",
+                datasetGroupInfoDTO.getId(), datasetGroupInfoDTO.getGraphState() == null);
+        if (datasetGroupInfoDTO.getId() != null && datasetGroupInfoDTO.getGraphState() != null) {
+            logger.info("[previewDataWithLimit] calling applyGraphSampleForPreview, graphState keys={}",
+                    datasetGroupInfoDTO.getGraphState().keySet());
+            int beforeSize = previewData.get("data") instanceof List ? ((List<?>) previewData.get("data")).size() : -1;
+            applyGraphSampleForPreview(datasetGroupInfoDTO.getGraphState(), previewData);
+            int afterSize = previewData.get("data") instanceof List ? ((List<?>) previewData.get("data")).size() : -1;
+            logger.info("[previewDataWithLimit] rows before={}, after={}", beforeSize, afterSize);
+        }
+
         map.put("data", previewData);
         if (ObjectUtils.isEmpty(datasetGroupInfoDTO.getId())) {
             map.put("allFields", fields);
@@ -245,8 +295,182 @@ public class DatasetDataManage {
         }
         map.put("sql", Base64.getEncoder().encodeToString(querySQL.getBytes()));
         String replaceSql = provider.rebuildSQL(SQLProvider.createQuerySQL(sqlMeta, false, false, false), sqlMeta, crossDs, dsMap);
-        map.put("total", getDatasetTotal(datasetGroupInfoDTO, replaceSql, null));
+        Long dbTotal = getDatasetTotal(datasetGroupInfoDTO, replaceSql, null);
+
+        Object sampledData = previewData.get("data");
+        if (sampledData instanceof List) {
+            int sampledSize = ((List<?>) sampledData).size();
+            if (sampledSize < dbTotal) {
+                map.put("total", (long) sampledSize);
+            } else {
+                map.put("total", dbTotal);
+            }
+        } else {
+            map.put("total", dbTotal);
+        }
         return map;
+    }
+
+    /**
+     * 根据 graphState 中的抽样操作节点，对预览数据进行行数裁剪：
+     * - 寻找直接连入结果集(result)的节点，沿着上游查找最近的 sample 操作节点；
+     * - sampleType = count 时，保留前 N 条；
+     * - sampleType = percent 时，按百分比裁剪。
+     */
+    @SuppressWarnings("unchecked")
+    private void applyGraphSampleForPreview(Map<String, Object> graphState, Map<String, Object> previewData) {
+        if (graphState == null || previewData == null) {
+            logger.info("[applyGraphSampleForPreview] null input, returning");
+            return;
+        }
+        Object nodesObj = graphState.get("nodes");
+        Object edgesObj = graphState.get("edges");
+        logger.info("[applyGraphSampleForPreview] nodesObj type={}, edgesObj type={}",
+                nodesObj != null ? nodesObj.getClass().getSimpleName() : "null",
+                edgesObj != null ? edgesObj.getClass().getSimpleName() : "null");
+        if (!(nodesObj instanceof List) || !(edgesObj instanceof List)) {
+            logger.warn("[applyGraphSampleForPreview] nodes/edges not List, returning");
+            return;
+        }
+        List<Map<String, Object>> nodes = (List<Map<String, Object>>) nodesObj;
+        List<Map<String, Object>> edges = (List<Map<String, Object>>) edgesObj;
+        if (nodes.isEmpty() || edges.isEmpty()) {
+            return;
+        }
+
+        // 1) 找到结果集节点（type == 'result'），默认 id 为 'result_output'
+        String resultId = "result_output";
+        for (Map<String, Object> n : nodes) {
+            Object type = n.get("type");
+            if ("result".equals(type)) {
+                Object nid = n.get("id");
+                if (nid != null) {
+                    resultId = String.valueOf(nid);
+                    break;
+                }
+            }
+        }
+
+        // 2) 找到直接连入结果集的节点
+        String upstreamId = null;
+        for (Map<String, Object> e : edges) {
+            Object target = e.get("targetId");
+            if (target != null && resultId.equals(String.valueOf(target))) {
+                Object src = e.get("sourceId");
+                if (src != null) {
+                    upstreamId = String.valueOf(src);
+                    break;
+                }
+            }
+        }
+        logger.info("[applyGraphSampleForPreview] resultId={}, upstreamId={}", resultId, upstreamId);
+        if (upstreamId == null) {
+            logger.info("[applyGraphSampleForPreview] no upstream of result, returning");
+            return;
+        }
+
+        // 3) 从直接上游开始，沿着图向上回溯，寻找最近的 sample 操作节点
+        Map<String, Map<String, Object>> nodeMap = new HashMap<>();
+        for (Map<String, Object> n : nodes) {
+            Object nid = n.get("id");
+            if (nid != null) {
+                nodeMap.put(String.valueOf(nid), n);
+            }
+        }
+        Map<String, List<String>> incomingMap = new HashMap<>();
+        for (Map<String, Object> e : edges) {
+            Object src = e.get("sourceId");
+            Object tgt = e.get("targetId");
+            if (src == null || tgt == null) continue;
+            String t = String.valueOf(tgt);
+            incomingMap.computeIfAbsent(t, k -> new ArrayList<>()).add(String.valueOf(src));
+        }
+
+        String sampleNodeId = null;
+        Deque<String> queue = new ArrayDeque<>();
+        Set<String> visitedIds = new HashSet<>();
+        queue.add(upstreamId);
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (!visitedIds.add(current)) {
+                continue;
+            }
+            Map<String, Object> n = nodeMap.get(current);
+            if (n == null) continue;
+            Object type = n.get("type");
+            Object opType = n.get("operationType");
+            if ("operation".equals(type) && "sample".equals(opType)) {
+                sampleNodeId = current;
+                break;
+            }
+            List<String> incomings = incomingMap.get(current);
+            if (incomings != null) {
+                queue.addAll(incomings);
+            }
+        }
+
+        logger.info("[applyGraphSampleForPreview] sampleNodeId={}", sampleNodeId);
+        if (sampleNodeId == null) {
+            logger.info("[applyGraphSampleForPreview] no sample node found upstream, returning");
+            return;
+        }
+
+        Map<String, Object> sampleNode = nodeMap.get(sampleNodeId);
+        if (sampleNode == null) {
+            return;
+        }
+        Object cfgObj = sampleNode.get("operationConfig");
+        logger.info("[applyGraphSampleForPreview] sampleNode keys={}, cfgObj type={}",
+                sampleNode.keySet(), cfgObj != null ? cfgObj.getClass().getSimpleName() : "null");
+        if (!(cfgObj instanceof Map)) {
+            return;
+        }
+        Map<String, Object> cfg = (Map<String, Object>) cfgObj;
+        String sampleType = cfg.get("sampleType") != null ? String.valueOf(cfg.get("sampleType")) : "count";
+
+        Object dataListObj = previewData.get("data");
+        if (!(dataListObj instanceof List)) {
+            return;
+        }
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) dataListObj;
+        if (rows.isEmpty()) {
+            return;
+        }
+
+        int limit = rows.size();
+        if ("count".equals(sampleType)) {
+            Object cntObj = cfg.get("sampleCount");
+            if (cntObj != null) {
+                try {
+                    int cnt = Integer.parseInt(String.valueOf(cntObj));
+                    if (cnt > 0) {
+                        limit = Math.min(cnt, rows.size());
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        } else if ("percent".equals(sampleType)) {
+            Object pctObj = cfg.get("samplePercent");
+            if (pctObj != null) {
+                try {
+                    double pct = Double.parseDouble(String.valueOf(pctObj));
+                    if (pct > 0) {
+                        int cnt = (int) Math.floor(rows.size() * pct / 100.0);
+                        if (cnt <= 0) {
+                            cnt = 1;
+                        }
+                        limit = Math.min(cnt, rows.size());
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+
+        logger.info("[applyGraphSampleForPreview] sampleType={}, limit={}, totalRows={}", sampleType, limit, rows.size());
+        if (limit < rows.size()) {
+            previewData.put("data", new ArrayList<>(rows.subList(0, limit)));
+            logger.info("[applyGraphSampleForPreview] truncated rows from {} to {}", rows.size(), limit);
+        }
     }
 
     public Long getDatasetTotal(Long datasetGroupId) throws Exception {
@@ -436,12 +660,52 @@ public class DatasetDataManage {
         }
     }
 
+    /**
+     * 解析预览请求中的 sortFields，使每个排序字段使用与内层 union 输出一致的 dataeaseName，
+     * 避免 ORDER BY 使用前端传入的 dataeaseName 导致 "Unknown column 't_a_0.f_xxx' in 'order clause'"。
+     */
+    private List<DeSortField> resolveSortFieldsForPreview(List<DeSortField> sortFields,
+                                                          List<DatasetTableFieldDTO> fields) {
+        if (ObjectUtils.isEmpty(sortFields)) {
+            return sortFields;
+        }
+        if (ObjectUtils.isEmpty(fields)) {
+            return new ArrayList<>();
+        }
+        List<DeSortField> resolved = new ArrayList<>();
+        for (DeSortField sf : sortFields) {
+            DatasetTableFieldDTO match = null;
+            for (DatasetTableFieldDTO f : fields) {
+                boolean sameId = Objects.equals(sf.getId(), f.getId());
+                boolean sameOrigin = Objects.equals(sf.getOriginName(), f.getOriginName())
+                        && Objects.equals(sf.getDatasetTableId(), f.getDatasetTableId());
+                boolean sameDataeaseName = StringUtils.isNotEmpty(sf.getDataeaseName())
+                        && Objects.equals(sf.getDataeaseName(), f.getDataeaseName());
+                if (sameId || sameOrigin || sameDataeaseName) {
+                    match = f;
+                    break;
+                }
+            }
+            if (match != null && StringUtils.isNotEmpty(match.getDataeaseName())) {
+                DeSortField resolvedField = new DeSortField();
+                BeanUtils.copyBean(resolvedField, match);
+                resolvedField.setOrderDirection(sf.getOrderDirection());
+                resolved.add(resolvedField);
+            }
+        }
+        return resolved;
+    }
+
     public List<String> getFieldEnum(MultFieldValuesRequest multFieldValuesRequest) throws Exception {
         // 根据前端传的查询组件field ids，获取所有字段枚举值并去重合并
         List<List<String>> list = new ArrayList<>();
-        for (Long id : multFieldValuesRequest.getFieldIds()) {
+        logger.info("getFieldEnum called with fieldIds: " + multFieldValuesRequest.getFieldIds());
+        for (String idStr : multFieldValuesRequest.getFieldIds()) {
+            Long id = Long.parseLong(idStr);
+            logger.info("Processing field id: " + id + " (parsed from: " + idStr + ")");
             DatasetTableFieldDTO field = datasetTableFieldManage.selectById(id);
             if (field == null) {
+                logger.error("Field not found for id: " + id);
                 DEException.throwException(Translator.get("i18n_no_field"));
             }
             List<DatasetTableFieldDTO> allFields = new ArrayList<>();
@@ -797,8 +1061,8 @@ public class DatasetDataManage {
     }
 
     public List<BaseTreeNodeDTO> getFieldValueTree(MultFieldValuesRequest multFieldValuesRequest) throws Exception {
-        List<Long> ids = multFieldValuesRequest.getFieldIds();
-        if (ids.isEmpty()) {
+        List<String> idStrs = multFieldValuesRequest.getFieldIds();
+        if (idStrs.isEmpty()) {
             DEException.throwException("no field selected.");
         }
         // 根据前端传的查询组件field ids，获取所有字段枚举值并去重合并
@@ -807,7 +1071,8 @@ public class DatasetDataManage {
 
         // 根据图表计算字段，获取数据集
         List<DatasetTableFieldDTO> allFields = new ArrayList<>();
-        DatasetTableFieldDTO field = datasetTableFieldManage.selectById(ids.getFirst());
+        Long id = Long.parseLong(idStrs.getFirst());
+        DatasetTableFieldDTO field = datasetTableFieldManage.selectById(id);
         Long datasetGroupId = field.getDatasetGroupId();
         if (field.getChartId() != null) {
             allFields.addAll(datasetTableFieldManage.getChartCalcFields(field.getChartId()));

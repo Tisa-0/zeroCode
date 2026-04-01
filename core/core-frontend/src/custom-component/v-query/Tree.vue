@@ -209,7 +209,7 @@ watch(
     }
   }
 )
-const fakeValue = ''
+const fakeValue = ref('')
 const treeValue = ref()
 const selectStyle = computed(() => {
   return props.isConfig ? {} : { width: queryConditionWidth() + 'px' }

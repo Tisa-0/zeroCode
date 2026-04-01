@@ -5,6 +5,7 @@ package io.dataease.api.dataset.engine;
  */
 public enum SQLFunctionsEnum {
     SUBSTRING("SUBSTRING", "SUBSTRING(s,n,len)", 0, "获取从字符串s中的第n个位置开始长度为len的字符串", false),
+    CONCAT("CONCAT", "CONCAT(s1,s2,...)", 0, "将两个或多个字符串连接成一个新的字符串", false),
     ABS("ABS", "ABS(x)", 2, "返回x的绝对值", false),
     CEIL("CEIL", "CEIL(x)", 2, "返回不小于x的最小整数", false),
     FLOOR("FLOOR", "FLOOR(x)", 2, "返回不大于x的最大整数", false),

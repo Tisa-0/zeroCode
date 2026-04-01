@@ -9,6 +9,10 @@ export interface DatasetOrFolder {
   nodeType: 'folder' | 'dataset'
   union?: Array<{}>
   allFields?: Array<{}>
+  /** 结果集落盘：排序等输出配置，列表预览时生效 */
+  sortFields?: Array<Record<string, unknown>>
+  /** 画布布局状态：节点位置、连线等（仅前端使用） */
+  graphState?: Record<string, any>
 }
 
 export interface EnumValue {
@@ -58,6 +62,10 @@ export interface Dataset {
   name: string
   union?: Array<{}>
   allFields?: Array<{}>
+  /** 结果集排序配置 */
+  sortFields?: Array<Record<string, unknown>>
+  /** 画布布局状态：节点位置、连线等 */
+  graphState?: Record<string, any>
 }
 
 export interface Table {
@@ -133,13 +141,16 @@ export const getTables = async (data): Promise<Table[]> => {
 }
 
 export const getTableField = async (data): Promise<IResponse> => {
-  return request.post({ url: '/datasetData/tableField', data }).then(res => {
+  return request.post({ url: '/datasetData/tableField', data, timeout: 120000 }).then(res => {
     return res?.data
+  }).catch(e => {
+    console.error('getTableField error:', e)
+    throw e
   })
 }
 
 export const getPreviewData = async (data): Promise<IResponse> => {
-  return request.post({ url: '/datasetData/previewData', data }).then(res => {
+  return request.post({ url: '/datasetData/previewData', data, timeout: 120000 }).then(res => {
     return res?.data
   })
 }

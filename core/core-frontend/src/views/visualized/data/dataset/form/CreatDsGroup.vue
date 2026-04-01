@@ -24,6 +24,7 @@ export interface Tree {
   union?: Array<{}>
   createTime: number
   allfields?: Array<{}>
+  sortFields?: Array<Record<string, unknown>>
   children?: Tree[]
 }
 const { t } = useI18n()
@@ -42,6 +43,8 @@ const treeRef = ref()
 const filterText = ref('')
 let union = []
 let allfields = []
+let sortFields: Array<Record<string, unknown>> | undefined
+let graphState: Record<string, any> | undefined
 const datasetForm = reactive({
   pid: '',
   name: ''
@@ -148,6 +151,8 @@ const createInit = (type, data: Tree, exec, name: string) => {
   if (type === 'dataset') {
     union = data.union
     allfields = data.allfields
+    sortFields = data.sortFields
+    graphState = (data as any).graphState
   }
   if (data.id) {
     const request = { leaf: false, weight: 7 } as BusiTreeRequest
@@ -251,6 +256,8 @@ const saveDataset = () => {
       if (nodeType.value === 'dataset') {
         params.union = union
         params.allFields = allfields
+        if (sortFields?.length) params.sortFields = sortFields
+        if (graphState) params.graphState = graphState
       }
       if (cmd.value === 'move' && !checkPid(params.pid)) {
         return
@@ -292,14 +299,14 @@ const emits = defineEmits(['finish'])
 </script>
 
 <template>
-  <el-dialog
-    v-loading="loading"
-    :title="dialogTitle"
-    v-model="createDataset"
-    class="create-dialog"
-    :width="cmd === 'move' ? '600px' : '420px'"
-    :before-close="resetForm"
-  >
+  <div v-loading="loading">
+    <el-dialog
+      :title="dialogTitle"
+      v-model="createDataset"
+      class="create-dialog"
+      :width="cmd === 'move' ? '600px' : '420px'"
+      :before-close="resetForm"
+    >
     <el-form
       label-position="top"
       require-asterisk-position="right"
@@ -372,6 +379,7 @@ const emits = defineEmits(['finish'])
       <el-button type="primary" @click="saveDataset">{{ t('dataset.confirm') }} </el-button>
     </template>
   </el-dialog>
+  </div>
 </template>
 
 <style lang="less" scoped>

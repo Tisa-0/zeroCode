@@ -5,7 +5,7 @@ server:
     connection-timeout: 70000
 spring:
   profiles:
-    active: '@profiles.active@'
+    active: standalone
   application:
     name: core-backend
   messages:
@@ -34,7 +34,7 @@ mybatis:
     map-underscore-to-camel-case: true
 logging:
   file:
-    path: /opt/dataease2.0/logs/dataease
+    path: E:/BI/dataEase/dataease-data/logs/dataease
 # sql日志生产环境注释掉
 #mybatis-plus:
 #  configuration:

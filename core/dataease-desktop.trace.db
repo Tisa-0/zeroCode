@@ -1,0 +1,4 @@
+2026-03-06 14:34:30 jdbc[4]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "XPACK_SHARE" not found; SQL statement:
+ALTER TABLE `xpack_share`
+    ADD COLUMN `ticket_require` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'ticket必须' AFTER `auto_pwd` [42102-220]

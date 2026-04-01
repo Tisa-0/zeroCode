@@ -4,14 +4,18 @@ import { ElMenuItem, ElSubMenu } from 'element-plus-secondary'
 import Icon from '@/components/icon-custom/src/Icon.vue'
 
 const title = props => {
-  const { title } = props.menu?.meta || {}
+  const { title } = props?.menu?.meta || {}
   return [h('span', null, { default: () => title })]
 }
 
 const expandIcon = (name: string) => {
   return h(Icon, { className: '', name })
 }
-const HeaderMenuItem = props => {
+const MAX_HEADER_MENU_DEPTH = 20
+const HeaderMenuItem = (props: { menu?: any; index?: string; depth?: number }) => {
+  if (!props?.menu) return null
+  const depth = (props.depth ?? 0) + 1
+  if (depth > MAX_HEADER_MENU_DEPTH) return null
   const { children = [], hidden, path } = props.menu
   if (hidden) {
     return null
@@ -29,7 +33,10 @@ const HeaderMenuItem = props => {
       },
       {
         title: () => title(props),
-        default: () => children.map(ele => h(HeaderMenuItem, { menu: ele, index: path }))
+        default: () =>
+          (Array.isArray(children) ? children.filter(Boolean) : [])
+            .filter((ele: any) => ele && ele.path !== path)
+            .map((ele: any) => h(HeaderMenuItem, { menu: ele, index: path, depth }))
       }
     )
   }

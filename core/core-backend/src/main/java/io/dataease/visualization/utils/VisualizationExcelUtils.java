@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 public class VisualizationExcelUtils {
 
     private static final String suffix = ".xlsx";
-    private static final String BASE_ROOT = "/opt/dataease2.0/data/report/";
+    private static final String BASE_ROOT = "E:/BI/dataEase/dataease-data/report/";
 
     public static File exportExcel(List<ExcelSheetModel> sheets, String fileName, String folderId) throws Exception {
         AtomicReference<String> realFileName = new AtomicReference<>(fileName);

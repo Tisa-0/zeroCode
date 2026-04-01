@@ -135,7 +135,11 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  mirror.value.destroy?.()
+  try {
+    mirror.value?.destroy?.()
+  } catch (_) {
+    // 避免卸载时无活跃实例导致的 Vue warn
+  }
 })
 
 const insertParamToCodeMirror = (value: string) => {

@@ -37,7 +37,7 @@ import java.util.Map;
 @RequestMapping("/staticResource")
 public class StaticResourceServer implements StaticResourceApi {
 
-    private final Path staticDir = Paths.get("/opt/dataease2.0/data/static-resource/");
+    private final Path staticDir = Paths.get("E:/BI/dataEase/dataease-data/static-resource/");
 
     @Override
     public void upload(String fileId, MultipartFile file) {

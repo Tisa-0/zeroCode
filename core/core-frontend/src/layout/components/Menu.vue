@@ -18,7 +18,7 @@ defineProps({
 
 const route = useRoute()
 const { push } = useRouter()
-const menuList = computed(() => route.matched[0]?.children || [])
+const menuList = computed(() => (route.matched[0]?.children || []).filter(m => m))
 const path = computed(() => route.matched[0]?.path)
 
 const activeIndex = computed(() => {
@@ -43,7 +43,7 @@ const menuSelect = (index: string, indexPath: string[]) => {
     class="el-menu-vertical"
     :collapse="collapse"
   >
-    <MenuItem v-for="menu in menuList" :key="menu.path" :menu="menu"></MenuItem>
+    <MenuItem v-for="menu in menuList" :key="menu?.path ?? menu?.name" :menu="menu"></MenuItem>
   </el-menu>
 </template>
 

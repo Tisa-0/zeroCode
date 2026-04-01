@@ -758,7 +758,7 @@ const getMenuList = (val: boolean) => {
         </div>
         <div class="dataset-table-info">
           <div v-if="activeName === 'dataPreview'" class="preview-num">
-            显示 100 条数据，共 {{ total }} 条
+            显示 {{ tableData.length }} 条数据，共 {{ total }} 条
           </div>
           <template v-if="['dataPreview', 'structPreview'].includes(activeName)">
             <div class="info-table" :class="[{ 'struct-preview': activeName === 'structPreview' }]">

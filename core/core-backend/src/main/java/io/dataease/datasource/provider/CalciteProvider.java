@@ -51,8 +51,8 @@ public class CalciteProvider extends Provider {
     private EngineManage engineManage;
     protected ExtendedJdbcClassLoader extendedJdbcClassLoader;
     private Map<Long, ExtendedJdbcClassLoader> customJdbcClassLoaders = new HashMap<>();
-    private final String FILE_PATH = "/opt/dataease2.0/drivers";
-    private final String CUSTOM_PATH = "/opt/dataease2.0/custom-drivers/";
+    private final String FILE_PATH = "E:/BI/dataEase/dataease-data/drivers";
+    private final String CUSTOM_PATH = "E:/BI/dataEase/dataease-data/custom-drivers/";
     private static String split = "DE";
     @Resource
     private CommonThreadPool commonThreadPool;
