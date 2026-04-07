@@ -20,7 +20,10 @@ public class DatasetGroupInfoDTO extends DatasetNodeDTO {
     // 画布布局信息：节点位置、连线等（仅前端使用，统一由 info 字段 JSON 持久化）
     private Map<String, Object> graphState;
 
-    private Map<String, List> data;
+    // 当前正在预览的画布节点 id（用于联合/去重/分组/抽样等操作节点预览）
+    private String previewNodeId;
+
+    private Map<String, List<?>> data;
 
     private List<DatasetTableFieldDTO> allFields;
 

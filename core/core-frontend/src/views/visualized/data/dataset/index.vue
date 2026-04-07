@@ -18,7 +18,7 @@ import { useMoveLine } from '@/hooks/web/useMoveLine'
 import { useRouter, useRoute } from 'vue-router'
 import CreatDsGroup from './form/CreatDsGroup.vue'
 import type { BusiTreeNode, BusiTreeRequest } from '@/models/tree/TreeNode'
-import { delDatasetTree, getDatasetPreview, barInfoApi } from '@/api/dataset'
+import { delDatasetTree, getDatasetDetails, getPreviewData, barInfoApi } from '@/api/dataset'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
 import DeResourceGroupOpt from '@/views/common/DeResourceGroupOpt.vue'
 import DatasetDetail from './DatasetDetail.vue'
@@ -137,6 +137,8 @@ const nodeInfo = reactive<Node>(cloneDeep(defaultNode))
 let allFields = []
 let columnsPreview = []
 let dataPreview = []
+let dataPreviewLoaded = false
+let dataPreviewTotal = 0
 
 const allFieldsColumns = [
   {
@@ -202,6 +204,41 @@ const generateColumns = (arr: Field[]) =>
       </div>
     )
   }))
+
+const getPreviewPayload = (res: any) => {
+  if (!res) return { fields: [], data: [], total: 0 }
+  const inner = res?.data ?? res
+  const nested = inner?.data ?? {}
+  const fields = (inner?.fields || nested?.fields || []) as Field[]
+  const data = (inner?.data && Array.isArray(inner.data) ? inner.data : nested?.data || []) as Array<Record<string, any>>
+  const total = inner?.total ?? nested?.total ?? res?.total ?? data.length
+  return { fields, data, total }
+}
+
+const loadDatasetPreview = async (datasetId: string) => {
+  const detail = await getDatasetDetails(datasetId)
+  allFields = (detail?.allFields as Field[]) || []
+  const reqBody: Record<string, any> = {
+    union: detail?.union || [],
+    allFields: detail?.allFields || [],
+    graphState: (detail as any)?.graphState || null,
+    id: datasetId
+  }
+  const sortFields = (detail as any)?.sortFields || []
+  if (sortFields.length) {
+    reqBody.sortFields = sortFields
+  }
+  const res = await getPreviewData(reqBody)
+  if (res?.code && res.code !== 0 && res.code !== 200) {
+    throw new Error(res.msg || '预览数据失败')
+  }
+  const payload = getPreviewPayload(res)
+  columnsPreview = generateColumns(payload.fields)
+  dataPreview = payload.data
+  dataPreviewLoaded = true
+  dataPreviewTotal = payload.total
+  total.value = payload.total
+}
 
 const dtLoading = ref(false)
 const isCreated = ref(false)
@@ -278,6 +315,8 @@ const handleNodeClick = (data: BusiTreeNode) => {
     nodeInfo.weight = data.weight
     columnsPreview = []
     dataPreview = []
+    dataPreviewLoaded = false
+    dataPreviewTotal = 0
     activeName.value = 'dataPreview'
     handleClick(activeName.value)
   })
@@ -321,20 +360,23 @@ const createDataset = (data?: BusiTreeNode) => {
 const handleClick = (tabName: TabPaneName) => {
   switch (tabName) {
     case 'dataPreview':
-      if (columnsPreview.length) {
+      if (dataPreviewLoaded) {
         columns.value = columnsPreview
         tableData.value = dataPreview
+        total.value = dataPreviewTotal
         break
       }
       dataPreviewLoading.value = true
-      getDatasetPreview(nodeInfo.id)
-        .then(res => {
-          allFields = (res?.allFields as unknown as Field[]) || []
-          columnsPreview = generateColumns((res?.data?.fields as Field[]) || [])
-          dataPreview = (res?.data?.data as Array<{}>) || []
+      loadDatasetPreview(nodeInfo.id)
+        .then(() => {
           columns.value = columnsPreview
           tableData.value = dataPreview
-          total.value = res.total
+        })
+        .catch(err => {
+          columns.value = []
+          tableData.value = []
+          total.value = 0
+          ElMessage.error(err?.message || '预览数据失败')
         })
         .finally(() => {
           dataPreviewLoading.value = false

@@ -50,6 +50,7 @@ const canvasRef = ref<HTMLElement>()
 const nodes = reactive<FlowNode[]>([])
 const edges = reactive<FlowEdge[]>([])
 const selectedNodeId = ref('')
+const selectedEdgeId = ref('')
 
 const editSqlField = ref(false)
 const sqlNode = ref<SqlNode>()
@@ -172,6 +173,14 @@ const startDragNode = (node: FlowNode, e: MouseEvent) => {
   dragging.startMouseY = y
   dragging.startNodeX = node.x
   dragging.startNodeY = node.y
+}
+
+const handleNodeDblClick = (node: FlowNode, e: MouseEvent) => {
+  e.preventDefault()
+  e.stopPropagation()
+  if (node.type === 'dataset') {
+    emits('edit-dataset', node)
+  }
 }
 
 const handleMouseMove = (e: MouseEvent) => {
@@ -437,7 +446,6 @@ const dataMenu = [
   { svgName: 'icon_refresh_outlined', label: '刷新', command: 'refresh' },
   { svgName: 'icon_info_outlined', label: '添加备注', command: 'addNote' },
   { svgName: 'icon_copy_outlined', label: '复制', command: 'copyNode' },
-  { svgName: 'icon_delete-trash_outlined', label: '删除连线', command: 'delEdge' },
   { svgName: 'icon_delete-trash_outlined', label: '删除节点', command: 'del' }
 ]
 const opMenu = [
@@ -445,7 +453,6 @@ const opMenu = [
   { svgName: 'icon_refresh_outlined', label: '刷新', command: 'refresh' },
   { svgName: 'icon_info_outlined', label: '添加备注', command: 'addNote' },
   { svgName: 'icon_copy_outlined', label: '复制', command: 'copyNode' },
-  { svgName: 'icon_delete-trash_outlined', label: '删除连线', command: 'delEdge' },
   { svgName: 'icon_delete-trash_outlined', label: '删除节点', command: 'del' }
 ]
 // 镜像节点菜单（无编辑节点）
@@ -453,7 +460,6 @@ const mirrorMenu = [
   { svgName: 'icon_refresh_outlined', label: '刷新', command: 'refresh' },
   { svgName: 'icon_info_outlined', label: '添加备注', command: 'addNote' },
   { svgName: 'icon_copy_outlined', label: '复制', command: 'copyNode' },
-  { svgName: 'icon_delete-trash_outlined', label: '删除连线', command: 'delEdge' },
   { svgName: 'icon_delete-trash_outlined', label: '删除节点', command: 'del' }
 ]
 const sqlExtraMenu = [
@@ -465,7 +471,6 @@ const datasetMenu = [
   { svgName: 'icon_refresh_outlined', label: '刷新', command: 'refresh' },
   { svgName: 'icon_info_outlined', label: '添加备注', command: 'addNote' },
   { svgName: 'icon_copy_outlined', label: '复制', command: 'copyNode' },
-  { svgName: 'icon_delete-trash_outlined', label: '删除连线', command: 'delEdge' },
   { svgName: 'icon_delete-trash_outlined', label: '删除节点', command: 'del' }
 ]
 const getNodeMenuList = (n: FlowNode) => {
@@ -560,7 +565,7 @@ const handleCommand = (node: FlowNode, cmd: string) => {
       dialogRename.value = true
       break
     case 'delEdge':
-      deleteEdges(node)
+      // 删除单条连线已改为单击连线后点击删除按钮，此处仅处理兼容
       break
     case 'del':
       deleteNode(node)
@@ -660,13 +665,43 @@ const closeSqlNode = () => {
   editSqlField.value = false
 }
 
-// ========== Edge Click ==========
-const handleEdgeClick = (edge: FlowEdge) => {
+// 获取选中连线的位置信息
+const selectedEdgePosition = computed(() => {
+  if (!selectedEdgeId.value) return null
+  const edge = edges.find(e => e.id === selectedEdgeId.value)
+  if (!edge) return null
   const src = nodes.find(n => n.id === edge.sourceId)
   const tgt = nodes.find(n => n.id === edge.targetId)
-  if (src && tgt && src.type !== 'operation' && tgt.type !== 'result' && tgt.type !== 'dataset') {
-    emits('joinEditor', [tgt, src])
+  if (!src || !tgt) return null
+  const sp = getOutputPort(src)
+  const tp = getInputPort(tgt)
+  return {
+    x: (sp.x + tp.x) / 2,
+    y: (sp.y + tp.y) / 2
   }
+})
+
+// ========== Edge Click ==========
+const handleEdgeClick = (edge: FlowEdge) => {
+  selectedEdgeId.value = edge.id
+}
+
+// 删除单条连线
+const deleteSelectedEdge = () => {
+  if (!selectedEdgeId.value) return
+  const idx = edges.findIndex(e => e.id === selectedEdgeId.value)
+  if (idx > -1) {
+    edges.splice(idx, 1)
+    selectedEdgeId.value = ''
+    emits('changeUpdate')
+    emits('addComplete')
+    emits('updateAllfields')
+  }
+}
+
+// 取消选中连线
+const clearEdgeSelection = () => {
+  selectedEdgeId.value = ''
 }
 
 // 允许通过节点 id 打开联接编辑（配合右键“编辑节点”）
@@ -729,6 +764,7 @@ const handleCanvasClick = (e: MouseEvent) => {
   const tag = (e.target as Element)?.tagName?.toLowerCase()
   if (tag === 'svg' || tag === 'rect' || tag === 'pattern' || tag === 'path') {
     selectedNodeId.value = ''
+    selectedEdgeId.value = ''
     emits('select-node', null)
   }
 }
@@ -968,8 +1004,7 @@ const initState = (
     gs &&
     Array.isArray(gs.nodes) &&
     gs.nodes.length > 0 &&
-    Array.isArray(gs.edges) &&
-    gs.edges.length > 0
+    Array.isArray(gs.edges)
 
   const xStep = 250
   const yStep = 70
@@ -1347,10 +1382,10 @@ defineExpose({
         v-for="edge in edges"
         :key="edge.id"
         :d="getEdgePath(edge)"
-        stroke="#BBBFC4"
-        stroke-width="2"
+        :stroke="selectedEdgeId === edge.id ? '#3370FF' : '#BBBFC4'"
+        :stroke-width="selectedEdgeId === edge.id ? 3 : 2"
         fill="none"
-        marker-end="url(#arrow)"
+        :marker-end="selectedEdgeId === edge.id ? 'url(#arrowBlue)' : 'url(#arrow)'"
         class="flow-edge"
         @click.stop="handleEdgeClick(edge)"
       />
@@ -1382,7 +1417,7 @@ defineExpose({
           stroke-width="1"
           :cursor="dragging.active && dragging.nodeId === node.id ? 'grabbing' : 'grab'"
           @mousedown.prevent="startDragNode(node, $event)"
-          @dblclick="node.type === 'dataset' && emits('edit-dataset', node)"
+          @dblclick="handleNodeDblClick(node, $event)"
         />
         <!-- Left color bar -->
         <rect
@@ -1421,7 +1456,11 @@ defineExpose({
 
         <!-- Node content via foreignObject -->
         <foreignObject :x="node.x + 10" :y="node.y + 2" :width="NODE_W - 20" :height="NODE_H - 4">
-          <div class="node-content" @mousedown.prevent="startDragNode(node, $event)">
+          <div
+            class="node-content"
+            @mousedown.prevent="startDragNode(node, $event)"
+            @dblclick="handleNodeDblClick(node, $event)"
+          >
             <el-icon :size="14" style="flex-shrink: 0">
               <Icon :name="getNodeIcon(node)" />
           </el-icon>
@@ -1459,6 +1498,17 @@ defineExpose({
       <img :src="zeroNodeImg" alt="" />
       <p>将左侧的数据表、操作节点</p>
       <p>拖拽到画布中创建数据流</p>
+    </div>
+
+    <!-- 删除连线按钮 -->
+    <div
+      v-if="selectedEdgeId && selectedEdgePosition"
+      class="edge-delete-btn"
+      :style="{ left: selectedEdgePosition.x + 'px', top: (selectedEdgePosition.y - 18) + 'px' }"
+      @click.stop="deleteSelectedEdge"
+      title="删除连线"
+    >
+      <el-icon :size="14"><Icon name="icon_delete-trash_outlined" /></el-icon>
     </div>
   </div>
 
@@ -1633,32 +1683,55 @@ defineExpose({
 }
 
   .flow-empty {
-  position: absolute;
+    position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     height: 100%;
-  z-index: 6;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  flex-direction: column;
-  padding-top: 42px;
+    z-index: 6;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    padding-top: 42px;
     pointer-events: none;
 
-  img {
-    width: 125px;
-    height: 125px;
-    margin-bottom: 8px;
-    -webkit-user-drag: none;
-  }
-  p {
-    font-family: '阿里巴巴普惠体 3.0 55 Regular L3';
-    font-size: 14px;
-    line-height: 22px;
-    text-align: center;
-    color: #646a73;
+    img {
+      width: 125px;
+      height: 125px;
+      margin-bottom: 8px;
+      -webkit-user-drag: none;
+    }
+    p {
+      font-family: '阿里巴巴普惠体 3.0 55 Regular L3';
+      font-size: 14px;
+      line-height: 22px;
+      text-align: center;
+      color: #646a73;
       margin: 0;
+    }
+  }
+
+  .edge-delete-btn {
+    position: absolute;
+    z-index: 10;
+    width: 28px;
+    height: 28px;
+    background: #fff;
+    border: 1px solid #DEE0E3;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.15s;
+
+    &:hover {
+      background: #fef0f0;
+      border-color: #f56c6c;
+      color: #f56c6c;
     }
   }
 }

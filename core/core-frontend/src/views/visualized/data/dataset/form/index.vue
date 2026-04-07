@@ -38,6 +38,7 @@ import {
   getDatasourceList,
   getTables,
   getPreviewData,
+  getDatasetPreview,
   getDatasetDetails,
   saveDatasetTree,
   barInfoApi,
@@ -59,11 +60,32 @@ interface DragEvent extends MouseEvent {
   dataTransfer: DataTransfer
 }
 interface Field {
+  id?: string | number
   fieldShortName: string
   name: string
   dataeaseName: string
   originName: string
   deType: number
+}
+interface WorkspaceTabItem {
+  key: string
+  datasetId: string
+  title: string
+  snapshot?: WorkspaceSnapshot
+  loaded?: boolean
+}
+interface WorkspaceSnapshot {
+  nodeInfo: {
+    id: string
+    pid: string
+    name: string
+  }
+  datasetName: string
+  allfields: any[]
+  nodeList: any[]
+  graphState: Record<string, any> | null
+  sortFields: Array<Record<string, any>>
+  dataSource: string
 }
 const appStore = useAppStoreWithOut()
 const embeddedStore = useEmbedded()
@@ -71,6 +93,10 @@ const { wsCache } = useCache()
 const { t } = useI18n()
 const route = useRoute()
 const { push } = useRouter()
+const workspaceActiveTab = ref('current')
+const workspaceTabs = ref<WorkspaceTabItem[]>([])
+const workspaceRootTitle = ref((route.query.title as string) || '未命名数据集')
+const workspaceRootSnapshot = ref<WorkspaceSnapshot | null>(null)
 const quotaTableHeight = ref(238)
 const creatDsFolder = shallowRef()
 const editCalcField = ref(false)
@@ -115,6 +141,160 @@ const fieldTypes = index => {
 
 const changeUpdate = () => {
   isUpdate = true
+}
+
+watch(
+  datasetName,
+  val => {
+    const title = val?.trim() || (route.query.title as string) || 'DataEase'
+    appStore.setTitle(title)
+    if (workspaceActiveTab.value === 'current') {
+      workspaceRootTitle.value = title
+    } else {
+      const tab = workspaceTabs.value.find(item => item.key === workspaceActiveTab.value)
+      if (tab) tab.title = title
+    }
+  },
+  { immediate: true }
+)
+
+const currentWorkspaceTitle = computed(() => workspaceRootTitle.value || '未命名数据集')
+
+const getCurrentWorkspaceDatasetId = () => String(nodeInfo.id || route.query.id || '')
+const getWorkspaceRootDatasetId = () => String(workspaceRootSnapshot.value?.nodeInfo?.id || route.query.id || '')
+
+const buildWorkspaceSnapshotFromDataset = (res: any): WorkspaceSnapshot => {
+  const arr: any[] = []
+  const { id, pid, name } = res || {}
+  const nextNodeInfo = {
+    id: String(id || ''),
+    pid: String(pid || ''),
+    name: name || '未命名数据集'
+  }
+  dfsUnion(arr, res?.union || [])
+  const [fir] = (res?.union || []) as { currentDs: { datasourceId: string } }[]
+  return {
+    nodeInfo: nextNodeInfo,
+    datasetName: nextNodeInfo.name,
+    allfields: cloneDeep(res?.allFields || []),
+    nodeList: cloneDeep(arr),
+    graphState: cloneDeep((res as any)?.graphState || null),
+    sortFields: cloneDeep((res as any)?.sortFields || []),
+    dataSource: fir?.currentDs?.datasourceId || ''
+  }
+}
+
+const captureCurrentWorkspaceSnapshot = (): WorkspaceSnapshot => {
+  const resultConfig = getResultOutputConfig()
+  return {
+    nodeInfo: cloneDeep(nodeInfo),
+    datasetName: datasetName.value,
+    allfields: cloneDeep(unref(allfields.value)),
+    nodeList: cloneDeep(toRaw(datasetDrag.value?.getNodeList?.() || [])),
+    graphState: cloneDeep(datasetDrag.value?.getGraphState?.() || null),
+    sortFields: cloneDeep((resultConfig as any)?.sortFields || []),
+    dataSource: dataSource.value
+  }
+}
+
+const applyWorkspaceSnapshot = async (snapshot: WorkspaceSnapshot) => {
+  loading.value = true
+  try {
+    nodeInfo = cloneDeep(snapshot.nodeInfo)
+    datasetName.value = snapshot.datasetName || '未命名数据集'
+    allfields.value = cloneDeep(snapshot.allfields || [])
+    dataSource.value = snapshot.dataSource || ''
+    if (dataSource.value) {
+      await dsChange(dataSource.value)
+    }
+    await nextTick()
+    datasetDrag.value?.initState(cloneDeep(snapshot.nodeList || []), {
+      sortFields: cloneDeep(snapshot.sortFields || []),
+      graphState: cloneDeep(snapshot.graphState || null)
+    })
+    await nextTick()
+    handleSelectPreviewNode({ id: 'result_output', type: 'result' })
+  } finally {
+    loading.value = false
+  }
+}
+
+const saveActiveWorkspaceSnapshot = () => {
+  const snapshot = captureCurrentWorkspaceSnapshot()
+  if (workspaceActiveTab.value === 'current') {
+    workspaceRootSnapshot.value = snapshot
+    workspaceRootTitle.value = snapshot.datasetName || workspaceRootTitle.value
+    return
+  }
+  const tab = workspaceTabs.value.find(item => item.key === workspaceActiveTab.value)
+  if (tab) {
+    tab.snapshot = snapshot
+    tab.loaded = true
+    tab.title = snapshot.datasetName || tab.title
+  }
+}
+
+const fetchWorkspaceSnapshotById = async (datasetId: string): Promise<WorkspaceSnapshot | null> => {
+  const barRes = await barInfoApi(datasetId)
+  if (!barRes || !barRes['id']) return null
+  const res = await getDatasetDetails(datasetId)
+  return buildWorkspaceSnapshotFromDataset(res)
+}
+
+const activateWorkspaceTab = async (targetKey: string) => {
+  if (targetKey === workspaceActiveTab.value) return
+  saveActiveWorkspaceSnapshot()
+  if (targetKey === 'current') {
+    workspaceActiveTab.value = 'current'
+    if (workspaceRootSnapshot.value) {
+      await applyWorkspaceSnapshot(workspaceRootSnapshot.value)
+    }
+    return
+  }
+  const targetTab = workspaceTabs.value.find(item => item.key === targetKey)
+  if (!targetTab) return
+  workspaceActiveTab.value = targetKey
+  if (!targetTab.snapshot) {
+    const snapshot = await fetchWorkspaceSnapshotById(targetTab.datasetId)
+    if (!snapshot) {
+      workspaceTabs.value = workspaceTabs.value.filter(item => item.key !== targetKey)
+      workspaceActiveTab.value = 'current'
+      return
+    }
+    targetTab.snapshot = snapshot
+    targetTab.loaded = true
+    targetTab.title = snapshot.datasetName || targetTab.title
+  }
+  await applyWorkspaceSnapshot(targetTab.snapshot)
+}
+
+const openWorkspaceDatasetTab = async (datasetId: string, title: string) => {
+  const normalizedId = String(datasetId || '')
+  if (!normalizedId) return
+  if (normalizedId === getCurrentWorkspaceDatasetId() || normalizedId === getWorkspaceRootDatasetId()) {
+    await activateWorkspaceTab('current')
+    return
+  }
+  const key = `dataset-${normalizedId}`
+  const existed = workspaceTabs.value.find(tab => tab.key === key)
+  if (!existed) {
+    workspaceTabs.value.push({
+      key,
+      datasetId: normalizedId,
+      title: title || '未命名数据集'
+    })
+  }
+  await activateWorkspaceTab(key)
+}
+
+const closeWorkspaceDatasetTab = (targetName: string) => {
+  const idx = workspaceTabs.value.findIndex(tab => tab.key === targetName)
+  if (idx < 0) return
+  workspaceTabs.value.splice(idx, 1)
+  if (workspaceActiveTab.value === targetName) {
+    const fallback = workspaceTabs.value[idx - 1] || workspaceTabs.value[idx] || null
+    activateWorkspaceTab(fallback?.key || 'current')
+  }
 }
 
 const fieldOptions = [
@@ -896,9 +1076,9 @@ const confirmFillNullField = async () => {
 
 const generateColumns = (arr: Field[]) =>
   arr.map(ele => ({
-    key: ele.dataeaseName || ele.originName || ele.id,
+    key: String(ele.dataeaseName || ele.originName || ele.id || ''),
     deType: ele.deType,
-    dataKey: ele.dataeaseName || ele.originName || ele.id,
+    dataKey: String(ele.dataeaseName || ele.originName || ele.id || ''),
     title: ele.name,
     width: 150,
     headerCellRenderer: ({ column }) => (
@@ -1070,14 +1250,13 @@ const handleEditNode = node => {
   }
 }
 
-// 双击黄色数据集节点：跳转到该数据集的编辑页面
-const handleEditDatasetNode = node => {
+// 双击黄色数据集节点：在当前编辑器中打开内部工作区 tab
+const handleEditDatasetNode = async node => {
   if (node.type !== 'dataset') return
-  const datasetId = (node as any).datasetId || node.id
-  push({
-    path: '/dataset-form',
-    query: { id: datasetId }
-  })
+  const datasetId = String((node as any).datasetId || node.id || '')
+  const title = node.tableName || node.name || '未命名数据集'
+  if (!datasetId) return
+  await openWorkspaceDatasetTab(datasetId, title)
 }
 
 const findNodeParent = (id, list, parent = null) => {
@@ -1104,7 +1283,100 @@ const handleNodeConfigConfirm = config => {
   }
 }
 
-const handleRefreshNode = () => {
+const syncDatasetReferenceNode = async (node: any, datasetId: string, options?: { preview?: boolean }) => {
+  if (!node || !datasetId) return
+  datasetNodeLoading.value = true
+  try {
+    const res = await getDatasetDetails(datasetId)
+    if (!res) return
+
+    const fields = res.allFields || []
+    const dimensions = fields.filter((f: any) => f.deType === 0 || f.deType === 1 || f.deType === 5)
+    const quotas = fields.filter((f: any) => f.deType === 2 || f.deType === 3 || f.deType === 4)
+    const dataSourceId =
+      (res as any).dataSourceId ||
+      (res as any).datasourceId ||
+      getDatasourceIdFromUnion((res as any).union || []) ||
+      (fields.find((f: any) => !!f?.datasourceId) as any)?.datasourceId ||
+      ''
+    const nextTitle = (res as any).name || node.tableName || node.name || '未命名数据集'
+
+    const convertedFields = [...dimensions, ...quotas].map((f: any) => {
+      const origin = f.originName || f.name || 'field'
+      const dataeaseName = fieldNameShort(node.id + '_' + origin)
+      return {
+        ...f,
+        id: f.id || guid(),
+        datasetTableId: node.id,
+        datasetGroupId: f.datasetGroupId || datasetId,
+        datasourceId: f.datasourceId || dataSourceId,
+        originName: f.originName || f.name,
+        dataeaseName: f.dataeaseName || dataeaseName,
+        fieldShortName: f.fieldShortName || dataeaseName,
+        checked: true
+      }
+    })
+
+    node.datasetId = datasetId
+    node.tableName = nextTitle
+    node.currentDsFields = convertedFields
+    if (!node.currentDs) {
+      node.currentDs = {}
+    }
+    node.currentDs.datasourceId = dataSourceId
+    node.currentDs.id = node.id
+    node.currentDs.datasetGroupId = datasetId
+    node.currentDs.tableName = nextTitle
+    node.currentDs.type = 'dataset'
+
+    node.datasourceId = dataSourceId
+    try {
+      const infoObj = JSON.parse(node.info || '{}') as any
+      infoObj.datasetId = datasetId
+      infoObj.reference = true
+      infoObj.table = nextTitle
+      infoObj.datasourceId = dataSourceId
+      node.info = JSON.stringify(infoObj)
+    } catch (e) {
+      node.info = JSON.stringify({
+        datasetId,
+        reference: true,
+        table: nextTitle,
+        datasourceId: dataSourceId
+      })
+    }
+    node.currentDs.info = node.info
+
+    addComplete()
+    updateAllfields()
+
+    datasetNodeLoading.value = false
+    await nextTick()
+    if (options?.preview !== false) {
+      handleSelectPreviewNode(node)
+    }
+  } catch (error) {
+    console.error('加载数据集字段失败:', error)
+    ElMessage.error('加载数据集字段失败')
+  } finally {
+    if (datasetNodeLoading.value) {
+      datasetNodeLoading.value = false
+    }
+  }
+}
+
+const handleRefreshNode = async node => {
+  if (node?.type === 'dataset') {
+    const datasetId = getReferenceDatasetId(node) || String((node as any).datasetId || '')
+    if (datasetId) {
+      await syncDatasetReferenceNode(node, datasetId, { preview: true })
+      return
+    }
+  }
+  if (node) {
+    handleSelectPreviewNode(node)
+    return
+  }
   datasetPreview()
 }
 
@@ -1561,6 +1833,8 @@ const XpackLoaded = () => p(true)
 onMounted(async () => {
   await new Promise(r => (p = r))
   await initEdite()
+  workspaceRootSnapshot.value = captureCurrentWorkspaceSnapshot()
+  workspaceRootTitle.value = datasetName.value?.trim() || workspaceRootTitle.value
   getDatasource()
   getDatasetList()
   useEmitt({
@@ -1642,74 +1916,32 @@ const datasetDragStart = (e: DragEvent, dataset: any) => {
   maskShow.value = true
 }
 
+const getReferenceDatasetId = (node: any) => {
+  if (node?.datasetId) return String(node.datasetId)
+  try {
+    const info = JSON.parse(node?.info || '{}') as any
+    return String(info?.datasetId || '')
+  } catch {
+    return ''
+  }
+}
+
+const getDatasourceIdFromUnion = (unionList: any[] = []): string => {
+  const stack = [...unionList]
+  while (stack.length) {
+    const item = stack.shift()
+    const datasourceId = item?.currentDs?.datasourceId
+    if (datasourceId) return String(datasourceId)
+    if (Array.isArray(item?.childrenDs) && item.childrenDs.length) {
+      stack.push(...item.childrenDs)
+    }
+  }
+  return ''
+}
+
 // 处理加载数据集引用节点字段
 const handleLoadDatasetFields = async ({ node, datasetId }: { node: any, datasetId: string }) => {
-  console.log('[DEBUG handleLoadDatasetFields] called, datasetId:', datasetId, 'node.id:', node.id)
-  // 设置加载标志，防止 select-node 竞态触发预览时 datasourceId 尚未就绪
-  datasetNodeLoading.value = true
-  try {
-    const res = await getDatasetDetails(datasetId)
-    if (res) {
-      const fields = res.allFields || []
-      const dimensions = fields.filter((f: any) => f.deType === 0 || f.deType === 1 || f.deType === 5)
-      const quotas = fields.filter((f: any) => f.deType === 2 || f.deType === 3 || f.deType === 4)
-      
-      // 获取数据源信息
-      const dataSourceId = res.dataSourceId || res.datasourceId || ''
-      
-      // 转换字段格式，确保包含正确的 datasetTableId 和 dataeaseName
-      const convertedFields = [...dimensions, ...quotas].map((f: any) => {
-        const origin = f.originName || f.name || 'field'
-        // 生成 dataeaseName（使用 fieldNameShort 函数，与 util.ts 保持一致）
-        const dataeaseName = fieldNameShort(node.id + '_' + origin)
-        
-        return {
-          ...f,
-          id: f.id || guid(),
-          datasetTableId: node.id,
-          datasourceId: f.datasourceId || dataSourceId,
-          originName: f.originName || f.name,
-          dataeaseName: f.dataeaseName || dataeaseName,
-          fieldShortName: f.fieldShortName || dataeaseName,
-          checked: true
-        }
-      })
-      
-      // 更新节点的 currentDsFields
-      node.currentDsFields = convertedFields
-      
-      // 更新节点的 info，确保包含数据源信息以便后续预览
-      if (dataSourceId) {
-        node.datasourceId = dataSourceId
-        try {
-          const infoObj = JSON.parse(node.info || '{}')
-          infoObj.datasourceId = dataSourceId
-          node.info = JSON.stringify(infoObj)
-        } catch (e) {
-          // info 解析失败，使用新的 info 结构
-          node.info = JSON.stringify({ 
-            datasetId: datasetId, 
-            reference: true, 
-            table: node.tableName,
-            datasourceId: dataSourceId
-          })
-        }
-      }
-      
-      // 强制同步字段到 allfields（通过 addComplete -> updateAllfields -> setFieldAll）
-      addComplete()
-      updateAllfields()
-      
-      // 字段加载完成后，通过 select-node 触发预览（此时 datasourceId 已就绪）
-      handleSelectPreviewNode(node)
-    }
-  } catch (error) {
-    console.error('加载数据集字段失败:', error)
-    ElMessage.error('加载数据集字段失败')
-  } finally {
-    // 无论成功失败，都清除加载标志
-    datasetNodeLoading.value = false
-  }
+  await syncDatasetReferenceNode(node, datasetId, { preview: true })
 }
 
 const resetDfsFields = (arr, idMap) => {
@@ -1859,6 +2091,55 @@ const formatPreviewCell = (value: unknown): string => {
   if (s.length <= maxLen) return s
   return s.slice(0, maxLen) + '...'
 }
+
+const previewDatasetReferenceNode = async (node: any) => {
+  const datasetId = getReferenceDatasetId(node)
+  if (!datasetId) return false
+  datasetPreviewLoading.value = true
+  try {
+    const res = await getDatasetPreview(datasetId)
+    const sourceFields = ((res as any)?.allFields || (res as any)?.data?.fields || []) as any[]
+    if (!sourceFields.length) return false
+
+    const datasourceId =
+      node.datasourceId ||
+      getDatasourceIdFromUnion((res as any)?.union || []) ||
+      sourceFields.find((f: any) => !!f?.datasourceId)?.datasourceId ||
+      ''
+
+    const normalizedFields = sourceFields.map((f: any) =>
+      normalizeField(
+        {
+          ...cloneDeep(f),
+          datasetTableId: node.id,
+          datasetGroupId: f.datasetGroupId || datasetId,
+          checked: f.checked ?? true
+        },
+        node.id,
+        datasourceId
+      )
+    ) as Array<Field & { datasetTableId?: string }>
+
+    node.currentDsFields = normalizedFields
+    if (datasourceId) node.datasourceId = datasourceId
+
+    allfields.value = [
+      ...allfields.value.filter((f: any) => (f as any).datasetTableId !== node.id),
+      ...normalizedFields
+    ]
+
+    previewFieldsFull.value = normalizedFields
+    columns.value = generateColumns(normalizedFields as Field[])
+    tableData.value = ((res as any)?.data?.data || []) as Array<Record<string, any>>
+    return true
+  } catch (e) {
+    console.error('previewDatasetReferenceNode error:', e)
+    return false
+  } finally {
+    datasetPreviewLoading.value = false
+  }
+}
+
 const loadRawFieldsForNode = async (node: any) => {
   const { datasourceId, id, info, tableName, type } = node || {}
   if (!datasourceId || !id || !tableName) return []
@@ -2070,15 +2351,8 @@ const datasetPreview = async () => {
     if (
       resultInput &&
       (resultInput as any).type === 'operation' &&
-      (resultInput as any).operationType === 'union'
-    ) {
-      // 结果集直接连的是联合节点：让结果集本地预览等价于联合节点预览（仅新建或未保存时使用）
-      effectiveNode = resultInput
-    } else if (
-      resultInput &&
-      (resultInput as any).type === 'operation' &&
-      // 结果集直接连到单输入操作节点时：让结果集预览展示“操作后的结果”（如去重/抽样/分组）
-      ['deduplicate', 'sample', 'group'].includes((resultInput as any).operationType)
+      // 结果集直接连到操作节点时：统一由后端返回操作后的最终预览
+      ['union', 'deduplicate', 'sample', 'group'].includes((resultInput as any).operationType)
     ) {
       effectiveNode = resultInput
     } else {
@@ -2110,80 +2384,9 @@ const datasetPreview = async () => {
           }
         }
       } else if (sourceNode && sourceNode.type === 'operation') {
-        // 源节点是操作节点：根据操作类型获取预览数据
+        // 源节点是操作节点：统一由后端根据 previewNodeId 返回最终预览
         const opType = (sourceNode as any).operationType
-        if (opType === 'union') {
-          // 联合节点：获取两个上游输入并合并
-          const upstreams = datasetDrag.value?.getUnionDirectUpstreams?.(sourceNode.id) || []
-          if (upstreams.length === 2) {
-            datasetPreviewLoading.value = true
-            try {
-              const up0 = upstreams[0]
-              const up1 = upstreams[1]
-              const resolveDataNode = (n: any) => {
-                if (!n) return null
-                if (n.type === 'db' || n.type === 'sql') return n
-                if (n.type === 'mirror') return datasetDrag.value?.getMirrorSourceNode?.(n.id) || null
-                return datasetDrag.value?.getUpstreamDataNode?.(n.id) || null
-              }
-              const dataNode0 = resolveDataNode(up0)
-              const dataNode1 = resolveDataNode(up1)
-              if (!dataNode0 || !dataNode1) {
-                ElMessage.warning('联合节点的两个输入均需能追溯到数据表节点')
-                return
-              }
-              const arr0: any[] = []
-              dfsNodeList(arr0, [{ ...cloneDeep(dataNode0), children: [] }])
-              let fields0 = allfields.value.filter(f => (f as any).datasetTableId === dataNode0.id)
-              if (!fields0.length) fields0 = await loadRawFieldsForNode(dataNode0)
-              if (!fields0.length) {
-                ElMessage.warning('左侧输入无可用字段')
-                return
-              }
-              const res0 = await getPreviewData({ union: arr0, allFields: fields0 })
-              if (res0?.code && res0.code !== 0 && res0.code !== 200) {
-                ElMessage.error(res0.msg || '预览数据失败')
-                return
-              }
-              const payload0 = getPreviewPayload(res0)
-              const rows0 = (payload0.data || []) as Array<Record<string, any>>
-              const rawFields0 = (payload0.fields || []) as any[]
-
-              const arr1: any[] = []
-              dfsNodeList(arr1, [{ ...cloneDeep(dataNode1), children: [] }])
-              let fields1 = allfields.value.filter(f => (f as any).datasetTableId === dataNode1.id)
-              if (!fields1.length) fields1 = await loadRawFieldsForNode(dataNode1)
-              if (!fields1.length) {
-                ElMessage.warning('右侧输入无可用字段')
-                return
-              }
-              const res1 = await getPreviewData({ union: arr1, allFields: fields1 })
-              if (res1?.code && res1.code !== 0 && res1.code !== 200) {
-                ElMessage.error(res1.msg || '预览数据失败')
-                return
-              }
-              const payload1 = getPreviewPayload(res1)
-              const rows1 = (payload1.data || []) as Array<Record<string, any>>
-
-              // 校验列数是否一致
-              if (rawFields0.length !== rawFields1.length) {
-                ElMessage.warning(`联合节点的两个输入列数不一致：${rawFields0.length} vs ${rawFields1.length}`)
-                return
-              }
-              // 合并行数据
-              const mergedRows = [...rows0, ...rows1]
-              columns.value = generateColumns(rawFields0)
-              tableData.value = mergedRows
-              previewFieldsFull.value = rawFields0
-              return
-            } finally {
-              datasetPreviewLoading.value = false
-            }
-          } else {
-            ElMessage.warning('联合节点需要恰好连接两个输入节点')
-            return
-          }
-        } else if (opType === 'join') {
+        if (opType === 'join') {
           // 联接节点：获取两个上游输入并执行 JOIN
           const upstreams = datasetDrag.value?.getAllUpstreamNodes?.(sourceNode.id) || []
           const dataUpstreams = upstreams.filter((n: any) => n && (n.type === 'db' || n.type === 'sql'))
@@ -2198,8 +2401,32 @@ const datasetPreview = async () => {
             return
           }
         } else {
-          // 其他操作节点（去重、抽样、分组等）：获取上游数据节点预览
-          const upstream = datasetDrag.value?.getUpstreamDataNode?.(sourceNode.id)
+          const resolveDataNode = (n: any) => {
+            if (!n) return null
+            if (n.type === 'db' || n.type === 'sql') return n
+            if (n.type === 'mirror') return datasetDrag.value?.getMirrorSourceNode?.(n.id) || null
+            return datasetDrag.value?.getUpstreamDataNode?.(n.id) || null
+          }
+          let upstream = datasetDrag.value?.getUpstreamDataNode?.(sourceNode.id)
+          let extraFields: any[] = []
+          if (opType === 'union') {
+            const upstreams = datasetDrag.value?.getUnionDirectUpstreams?.(sourceNode.id) || []
+            if (upstreams.length !== 2) {
+              ElMessage.warning('联合节点需要恰好连接两个输入节点')
+              return
+            }
+            const leftNode = resolveDataNode(upstreams[0])
+            const rightNode = resolveDataNode(upstreams[1])
+            if (!leftNode || !rightNode) {
+              ElMessage.warning('联合节点的两个输入均需能追溯到数据表节点')
+              return
+            }
+            upstream = leftNode
+            extraFields = allfields.value.filter(f => (f as any).datasetTableId === rightNode.id)
+            if (!extraFields.length) {
+              extraFields = await loadRawFieldsForNode(rightNode)
+            }
+          }
           if (upstream) {
             const isolatedNode = { ...cloneDeep(upstream), children: [] }
             dfsNodeList(arr, [isolatedNode])
@@ -2211,6 +2438,14 @@ const datasetPreview = async () => {
                 fieldsForRequest = raw
               }
             }
+            if (extraFields.length) {
+              const seen = new Set(fieldsForRequest.map((f: any) => String(f.id)))
+              fieldsForRequest = [
+                ...fieldsForRequest,
+                ...extraFields.filter((f: any) => !seen.has(String(f.id)))
+              ]
+            }
+            effectiveNode = sourceNode
           } else {
             ElMessage.warning('操作节点未连接到数据源')
             return
@@ -2235,6 +2470,11 @@ const datasetPreview = async () => {
         }
       }
     } else if (node.type === 'dataset') {
+      const previewed = await previewDatasetReferenceNode(node)
+      if (previewed) {
+        return
+      }
+
       // dataset 引用节点：节点已有字段（handleLoadDatasetFields 加载），直接用于预览
       const isolatedNode = { ...cloneDeep(node), children: [] }
       dfsNodeList(arr, [isolatedNode])
@@ -2257,12 +2497,11 @@ const datasetPreview = async () => {
       }
       
       if (!fieldsForRequest.length) {
-        // 所有字段获取方式都失败时，提示用户
-        ElMessage.warning('数据集节点暂无字段信息，请检查数据集配置')
+        // 引用数据集节点字段尚未就绪或为空时静默返回，避免拖入画布时出现打断性提示
         return
       }
     } else if (node.type === 'operation' && node.operationType === 'union') {
-      // 联合节点：恰好两个上游，分别取数后校验列数/类型并合并行
+      // 联合节点预览统一走后端，避免前端双请求合并导致 total 与页面结果不一致
       const upstreams = datasetDrag.value?.getUnionDirectUpstreams?.(node.id) || []
       if (upstreams.length !== 2) {
         ElMessage.warning('联合节点需要恰好连接两个输入节点')
@@ -2279,104 +2518,14 @@ const datasetPreview = async () => {
         ElMessage.warning('联合节点的两个输入均需能追溯到数据表节点')
         return
       }
-      datasetPreviewLoading.value = true
-      try {
-        const arr0: any[] = []
-        dfsNodeList(arr0, [{ ...cloneDeep(dataNode0), children: [] }])
-        let fields0 = allfields.value.filter(f => (f as any).datasetTableId === dataNode0.id)
-        if (!fields0.length) fields0 = await loadRawFieldsForNode(dataNode0)
-        if (!fields0.length) {
-          ElMessage.warning('左侧输入无可用字段')
-          return
-        }
-        const res0 = await getPreviewData({ union: arr0, allFields: fields0 })
-        // 检查错误
-        if (res0?.code && res0.code !== 0 && res0.code !== 200) {
-          ElMessage.error(res0.msg || '预览数据失败')
-          tableData.value = []
-          columns.value = []
-          previewFieldsFull.value = []
-          return
-        }
-        const payload0 = getPreviewPayload(res0)
-        const rows0 = (payload0.data || []) as Array<Record<string, any>>
-        const rawFields0 = (payload0.fields || []) as any[]
-
-        const arr1: any[] = []
-        dfsNodeList(arr1, [{ ...cloneDeep(dataNode1), children: [] }])
-        let fields1 = allfields.value.filter(f => (f as any).datasetTableId === dataNode1.id)
-        if (!fields1.length) fields1 = await loadRawFieldsForNode(dataNode1)
-        if (!fields1.length) {
-          ElMessage.warning('右侧输入无可用字段')
-          return
-        }
-        const res1 = await getPreviewData({ union: arr1, allFields: fields1 })
-        // 检查错误
-        if (res1?.code && res1.code !== 0 && res1.code !== 200) {
-          ElMessage.error(res1.msg || '预览数据失败')
-          tableData.value = []
-          columns.value = []
-          previewFieldsFull.value = []
-          return
-        }
-        const payload1 = getPreviewPayload(res1)
-        const rows1 = (payload1.data || []) as Array<Record<string, any>>
-        const rawFields1 = (payload1.fields || []) as any[]
-
-        if (rawFields0.length !== rawFields1.length) {
-          ElMessage.error(
-            `联合无效：两表列数不一致（${rawFields0.length} 列 vs ${rawFields1.length} 列），标的列数必须相同且对应列的数据类型需一致`
-          )
-          return
-        }
-        const normType = (f: any) => {
-          const t = f?.deType ?? 0
-          if (t === 2 || t === 3 || t === 4) return 'value'
-          return t === 1 ? 'time' : 'text'
-        }
-        for (let i = 0; i < rawFields0.length; i++) {
-          if (normType(rawFields0[i]) !== normType(rawFields1[i])) {
-            const n0 = rawFields0[i]?.name || rawFields0[i]?.originName || '列' + (i + 1)
-            const n1 = rawFields1[i]?.name || rawFields1[i]?.originName || '列' + (i + 1)
-            ElMessage.error(
-              `联合无效：第 ${i + 1} 列数据类型不一致（${n0} vs ${n1}），标的列数必须相同且对应列的数据类型需一致`
-            )
-            return
-          }
-        }
-
-        const key0 = rawFields0.map((f: any) => f.dataeaseName || f.originName || f.name)
-        const key1 = rawFields1.map((f: any) => f.dataeaseName || f.originName || f.name)
-        const mergedRows: Array<Record<string, any>> = [...rows0]
-        for (const row1 of rows1) {
-          const mapped: Record<string, any> = {}
-          key0.forEach((k, i) => {
-            mapped[k] = row1[key1[i]]
-          })
-          mergedRows.push(mapped)
-        }
-        const unionMode = node.operationConfig?.unionMode || 'all'
-        let finalRows = mergedRows
-        if (unionMode === 'distinct') {
-          const seen = new Set<string>()
-          finalRows = mergedRows.filter(row => {
-            const sig = JSON.stringify(key0.map(k => row[k]))
-            if (seen.has(sig)) return false
-            seen.add(sig)
-            return true
-          })
-        }
-        const withTableId = rawFields0.map((f: any) => ({
-          ...f,
-          datasetTableId: dataNode0.id
-        }))
-        previewFieldsFull.value = withTableId
-        columns.value = generateColumns(withTableId)
-        tableData.value = finalRows
-      } finally {
-        datasetPreviewLoading.value = false
-      }
-      return
+      const isolatedNode = { ...cloneDeep(dataNode0), children: [] }
+      dfsNodeList(arr, [isolatedNode])
+      let fields0 = allfields.value.filter(f => (f as any).datasetTableId === dataNode0.id)
+      if (!fields0.length) fields0 = await loadRawFieldsForNode(dataNode0)
+      let fields1 = allfields.value.filter(f => (f as any).datasetTableId === dataNode1.id)
+      if (!fields1.length) fields1 = await loadRawFieldsForNode(dataNode1)
+      fieldsForRequest = [...fields0, ...fields1]
+      effectiveNode = node
     } else if (node.type === 'operation' && node.operationType === 'join') {
       // 联接节点：由后端根据 union 结构生成 JOIN SQL 预览联接后的结果
       // 注意：画布的 getNodeList() 以“结果集节点”为锚点构建 union 树；
@@ -2472,6 +2621,12 @@ const datasetPreview = async () => {
     sortNode && sortNode.operationType === 'sort'
       ? buildSortFieldsForPreview(sortNode, fieldsForRequest)
       : []
+  const previewNodeIdForRequest =
+    effectiveNode &&
+    (effectiveNode as any).type === 'operation' &&
+    ['union', 'sample', 'deduplicate', 'group'].includes((effectiveNode as any).operationType)
+      ? (effectiveNode as any).id
+      : undefined
 
   datasetPreviewLoading.value = true
   try {
@@ -2485,6 +2640,7 @@ const datasetPreview = async () => {
       id: nodeInfo.id || undefined
     }
     if (sortFieldsForRequest.length) reqBody.sortFields = sortFieldsForRequest
+    if (previewNodeIdForRequest) reqBody.previewNodeId = previewNodeIdForRequest
     const res = await getPreviewData(reqBody)
     // 检查返回结果是否是错误
     if (res?.code && res.code !== 0 && res.code !== 200) {
@@ -2508,7 +2664,10 @@ const datasetPreview = async () => {
     columns.value = generateColumns(withTableId)
     let previewRows = (payload.data || []) as Array<Record<string, any>>
     if ((effectiveNode as any)?.type === 'operation') {
-      if (sortNode?.operationType === 'sort' && sortFieldsForRequest.length) {
+      if (
+        previewNodeIdForRequest ||
+        (sortNode?.operationType === 'sort' && sortFieldsForRequest.length)
+      ) {
         // 已走服务端排序，无需前端再排
       } else {
         previewRows = applyOperationPreview(effectiveNode, previewRows, withTableId)
@@ -2538,16 +2697,20 @@ const dfsNodeList = (arr, list) => {
       sqlVariableDetails,
       datasetId
     } = ele
+    const normalizedDatasourceId =
+      type === 'dataset'
+        ? datasourceId || (currentDsFields || []).find((f: any) => !!f?.datasourceId)?.datasourceId || ''
+        : datasourceId || ''
     // 保存前规范化字段，确保每个字段都有 id，避免保存后字段 ID 丢失
     const normalizedFields = (currentDsFields || []).map(f =>
-      normalizeField(cloneDeep(f), id, datasourceId || '')
+      normalizeField(cloneDeep(f), id, normalizedDatasourceId)
     )
     arr.push({
       currentDs: {
         sqlVariableDetails,
         tableName,
         type,
-        datasourceId,
+        datasourceId: normalizedDatasourceId,
         id,
         info,
         datasetGroupId: datasetId
@@ -2808,6 +2971,25 @@ const getDsIconName = data => {
           }}</span>
         </template>
       </span>
+      <div class="workspace-top-tabs">
+        <div
+          class="workspace-editor-tab"
+          :class="{ active: workspaceActiveTab === 'current' }"
+          @click="activateWorkspaceTab('current')"
+        >
+          <span class="workspace-editor-tab-title" :title="currentWorkspaceTitle">{{ currentWorkspaceTitle }}</span>
+        </div>
+        <div
+          v-for="tab in workspaceTabs"
+          :key="tab.key"
+          class="workspace-editor-tab"
+          :class="{ active: workspaceActiveTab === tab.key }"
+          @click="activateWorkspaceTab(tab.key)"
+        >
+          <span class="workspace-editor-tab-title" :title="tab.title">{{ tab.title }}</span>
+          <span class="workspace-editor-tab-close" @click.stop="closeWorkspaceDatasetTab(tab.key)">x</span>
+        </div>
+      </div>
       <span class="oprate">
         <el-button :disabled="showInput" type="primary" @click="datasetSaveAndBack"
           >保存并返回</el-button
@@ -3744,8 +3926,55 @@ const getDsIconName = data => {
   --ed-table-header-bg-color: #f5f6f7;
 }
 
+.workspace-editor-tab {
+  height: 32px;
+  min-width: 120px;
+  max-width: 220px;
+  padding: 0 10px;
+  border: 1px solid rgba(31, 35, 41, 0.12);
+  border-bottom: none;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  background: #e9edf2;
+  color: #646a73;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &.active {
+    background: #fff;
+    color: #1f2329;
+  }
+}
+
+.workspace-editor-tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-editor-tab-close {
+  width: 16px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 50%;
+  color: #909399;
+
+  &:hover {
+    background: rgba(31, 35, 41, 0.08);
+    color: #1f2329;
+  }
+}
+
 .de-dataset-form {
   color: #1f2329;
+  overflow: hidden;
+  position: relative;
 
   :deep(.ed-table__border-left-patch),
   :deep(.ed-table--border .ed-table__inner-wrapper::after) {
@@ -3758,6 +3987,7 @@ const getDsIconName = data => {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 16px;
     padding: 0 24px;
     background: #050e21;
     box-shadow: 0px 2px 4px 0px rgba(31, 35, 41, 0.12);
@@ -3769,7 +3999,9 @@ const getDsIconName = data => {
       font-weight: 400;
       display: flex;
       align-items: center;
-      width: 50%;
+      width: auto;
+      max-width: 320px;
+      flex-shrink: 0;
       position: relative;
 
       .ed-form-item__error {
@@ -3799,15 +4031,34 @@ const getDsIconName = data => {
         cursor: pointer;
       }
     }
+
+    .workspace-top-tabs {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-top: 8px;
+    }
+
+    .oprate {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
   }
 
   .container {
     width: 100%;
-    height: calc(100vh - 56px);
+    height: calc(100% - 56px);
+    min-height: 0;
     position: relative;
     .drag-left {
       position: absolute;
-      height: calc(100vh - 56px);
+      height: 100%;
       width: 4px;
       top: 0;
       z-index: 2;
@@ -4097,8 +4348,10 @@ const getDsIconName = data => {
 
   .dataset-db {
     display: flex;
+    min-height: 0;
     .drag-right {
-      height: calc(100vh - 56px);
+      height: 100%;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       .different-datasource {
@@ -4124,6 +4377,7 @@ const getDsIconName = data => {
         overflow: hidden;
         box-sizing: border-box;
         flex: 1;
+        min-height: 0;
         min-height: 0;
         display: flex;
         flex-direction: column;

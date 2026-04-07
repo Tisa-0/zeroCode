@@ -1,9 +1,11 @@
 package io.dataease.dataset.manage;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.dataease.api.chart.dto.DeSortField;
 import io.dataease.api.dataset.dto.*;
 import io.dataease.api.dataset.union.DatasetGroupInfoDTO;
 import io.dataease.api.dataset.union.DatasetTableInfoDTO;
+import io.dataease.api.dataset.union.UnionDTO;
 import io.dataease.api.permissions.dataset.dto.DataSetRowPermissionsTreeDTO;
 import io.dataease.auth.bo.TokenUserBO;
 import io.dataease.chart.utils.ChartDataBuild;
@@ -171,6 +173,12 @@ public class DatasetDataManage {
     }
 
     public Map<String, Object> previewDataWithLimit(DatasetGroupInfoDTO datasetGroupInfoDTO, Integer start, Integer count, boolean checkPermission) throws Exception {
+        if (StringUtils.isNotBlank(datasetGroupInfoDTO.getPreviewNodeId()) && datasetGroupInfoDTO.getGraphState() != null) {
+            Map<String, Object> graphPreview = previewGraphNodeWithLimit(datasetGroupInfoDTO, start, count, checkPermission);
+            if (graphPreview != null) {
+                return graphPreview;
+            }
+        }
         Map<String, Object> sqlMap = datasetSQLManage.getUnionSQLForEdit(datasetGroupInfoDTO, null);
         String sql = (String) sqlMap.get("sql");
 
@@ -273,15 +281,16 @@ public class DatasetDataManage {
         // 重新构造data
         Map<String, Object> previewData = buildPreviewData(data, fields, desensitizationList);
 
-        // 若是已保存的数据集预览，且存在画布编排信息（graphState），则根据图中的抽样操作节点
-        // 对预览结果进行一次行数裁剪，保证“数据集页面预览的数据”与结果集中抽样后的数据条数一致。
+        boolean graphPreviewOverridden = false;
+        // 若是已保存的数据集预览，且存在画布编排信息（graphState），则根据结果集直接上游节点
+        // 对预览结果做最终语义修正，保证“数据集页面预览的数据”与设计态结果集一致。
         logger.info("[previewDataWithLimit] id={}, graphState isNull={}",
                 datasetGroupInfoDTO.getId(), datasetGroupInfoDTO.getGraphState() == null);
         if (datasetGroupInfoDTO.getId() != null && datasetGroupInfoDTO.getGraphState() != null) {
-            logger.info("[previewDataWithLimit] calling applyGraphSampleForPreview, graphState keys={}",
+            logger.info("[previewDataWithLimit] calling applyGraphResultPreview, graphState keys={}",
                     datasetGroupInfoDTO.getGraphState().keySet());
             int beforeSize = previewData.get("data") instanceof List ? ((List<?>) previewData.get("data")).size() : -1;
-            applyGraphSampleForPreview(datasetGroupInfoDTO.getGraphState(), previewData);
+            graphPreviewOverridden = applyGraphResultPreview(datasetGroupInfoDTO, previewData, start, count, checkPermission);
             int afterSize = previewData.get("data") instanceof List ? ((List<?>) previewData.get("data")).size() : -1;
             logger.info("[previewDataWithLimit] rows before={}, after={}", beforeSize, afterSize);
         }
@@ -300,11 +309,14 @@ public class DatasetDataManage {
         Object sampledData = previewData.get("data");
         if (sampledData instanceof List) {
             int sampledSize = ((List<?>) sampledData).size();
-            if (sampledSize < dbTotal) {
+            if (graphPreviewOverridden) {
                 map.put("total", (long) sampledSize);
-            } else {
-                map.put("total", dbTotal);
+                return map;
             }
+            // total 不能小于当前实际返回的预览行数。
+            // 联合（UNION ALL）等图编排可能会让结果行数大于原始 count SQL 的统计值，
+            // 此时若仍取更小的 dbTotal，会出现“预览数据 12 行但 total=6”这类错误。
+            map.put("total", Math.max(dbTotal, (long) sampledSize));
         } else {
             map.put("total", dbTotal);
         }
@@ -470,6 +482,587 @@ public class DatasetDataManage {
         if (limit < rows.size()) {
             previewData.put("data", new ArrayList<>(rows.subList(0, limit)));
             logger.info("[applyGraphSampleForPreview] truncated rows from {} to {}", rows.size(), limit);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean applyGraphResultPreview(DatasetGroupInfoDTO datasetGroupInfoDTO,
+                                            Map<String, Object> previewData,
+                                            Integer start,
+                                            Integer count,
+                                            boolean checkPermission) throws Exception {
+        Map<String, Object> graphState = datasetGroupInfoDTO.getGraphState();
+        if (graphState == null || previewData == null) {
+            return false;
+        }
+        Object nodesObj = graphState.get("nodes");
+        Object edgesObj = graphState.get("edges");
+        if (!(nodesObj instanceof List) || !(edgesObj instanceof List)) {
+            return false;
+        }
+        List<Map<String, Object>> nodes = (List<Map<String, Object>>) nodesObj;
+        List<Map<String, Object>> edges = (List<Map<String, Object>>) edgesObj;
+        if (CollectionUtils.isEmpty(nodes) || CollectionUtils.isEmpty(edges)) {
+            return false;
+        }
+
+        String resultId = "result_output";
+        for (Map<String, Object> n : nodes) {
+            if ("result".equals(asString(n.get("type")))) {
+                resultId = StringUtils.defaultIfBlank(asString(n.get("id")), resultId);
+                break;
+            }
+        }
+        String upstreamId = null;
+        for (Map<String, Object> e : edges) {
+            if (Objects.equals(resultId, asString(e.get("targetId")))) {
+                upstreamId = asString(e.get("sourceId"));
+                break;
+            }
+        }
+        if (StringUtils.isBlank(upstreamId)) {
+            return false;
+        }
+
+        Map<String, Map<String, Object>> nodeMap = new LinkedHashMap<>();
+        Map<String, List<String>> incomingMap = new HashMap<>();
+        for (Map<String, Object> node : nodes) {
+            String id = asString(node.get("id"));
+            if (StringUtils.isNotBlank(id)) {
+                nodeMap.put(id, node);
+            }
+        }
+        for (Map<String, Object> edge : edges) {
+            String src = asString(edge.get("sourceId"));
+            String tgt = asString(edge.get("targetId"));
+            if (StringUtils.isBlank(src) || StringUtils.isBlank(tgt)) {
+                continue;
+            }
+            incomingMap.computeIfAbsent(tgt, k -> new ArrayList<>()).add(src);
+        }
+
+        Map<String, Object> upstreamNode = nodeMap.get(upstreamId);
+        if (upstreamNode == null || !"operation".equals(asString(upstreamNode.get("type")))) {
+            return false;
+        }
+        String opType = asString(upstreamNode.get("operationType"));
+        if (!Arrays.asList("union", "sample", "deduplicate", "group").contains(opType)) {
+            return false;
+        }
+
+        List<DatasetTableFieldDTO> fields = extractPreviewFields(previewData);
+        List<LinkedHashMap<String, Object>> rows = extractPreviewRows(previewData);
+        if ("union".equals(opType)) {
+            List<LinkedHashMap<String, Object>> unionRows = buildUnionPreviewRows(datasetGroupInfoDTO, upstreamNode, nodeMap, incomingMap, start, count, checkPermission);
+            if (unionRows == null) {
+                return false;
+            }
+            previewData.put("data", unionRows);
+            return true;
+        }
+
+        List<LinkedHashMap<String, Object>> finalRows = applyDirectOperationPreview(opType, upstreamNode, rows, fields);
+        previewData.put("data", finalRows);
+        return true;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> previewGraphNodeWithLimit(DatasetGroupInfoDTO datasetGroupInfoDTO,
+                                                          Integer start,
+                                                          Integer count,
+                                                          boolean checkPermission) throws Exception {
+        Map<String, Object> graphState = datasetGroupInfoDTO.getGraphState();
+        if (graphState == null) {
+            return null;
+        }
+        Object nodesObj = graphState.get("nodes");
+        Object edgesObj = graphState.get("edges");
+        if (!(nodesObj instanceof List) || !(edgesObj instanceof List)) {
+            return null;
+        }
+        List<Map<String, Object>> nodes = (List<Map<String, Object>>) nodesObj;
+        List<Map<String, Object>> edges = (List<Map<String, Object>>) edgesObj;
+        if (CollectionUtils.isEmpty(nodes)) {
+            return null;
+        }
+
+        Map<String, Map<String, Object>> nodeMap = new LinkedHashMap<>();
+        Map<String, List<String>> incomingMap = new HashMap<>();
+        for (Map<String, Object> node : nodes) {
+            String id = asString(node.get("id"));
+            if (StringUtils.isNotBlank(id)) {
+                nodeMap.put(id, node);
+            }
+        }
+        for (Map<String, Object> edge : edges) {
+            String src = asString(edge.get("sourceId"));
+            String tgt = asString(edge.get("targetId"));
+            if (StringUtils.isBlank(src) || StringUtils.isBlank(tgt)) {
+                continue;
+            }
+            incomingMap.computeIfAbsent(tgt, k -> new ArrayList<>()).add(src);
+        }
+
+        Map<String, Object> selectedNode = nodeMap.get(datasetGroupInfoDTO.getPreviewNodeId());
+        if (selectedNode == null || !"operation".equals(asString(selectedNode.get("type")))) {
+            return null;
+        }
+        String opType = asString(selectedNode.get("operationType"));
+        if ("union".equals(opType)) {
+            return previewUnionGraphNode(datasetGroupInfoDTO, selectedNode, nodeMap, incomingMap, start, count, checkPermission);
+        }
+        if (Arrays.asList("sample", "deduplicate", "group").contains(opType)) {
+            Map<String, Object> upstreamNode = resolveGraphDataNode(
+                    incomingMap.getOrDefault(asString(selectedNode.get("id")), Collections.emptyList()).stream().findFirst().orElse(null),
+                    nodeMap, incomingMap, new HashSet<>());
+            if (upstreamNode == null) {
+                return null;
+            }
+            Map<String, Object> preview = previewSingleGraphNode(datasetGroupInfoDTO, upstreamNode, start, count, checkPermission);
+            if (preview == null) {
+                return null;
+            }
+            List<DatasetTableFieldDTO> fields = extractPreviewFields(preview);
+            List<LinkedHashMap<String, Object>> rows = extractPreviewRows(preview);
+            List<LinkedHashMap<String, Object>> finalRows = applyDirectOperationPreview(opType, selectedNode, rows, fields);
+            return buildCustomPreviewResult(datasetGroupInfoDTO, fields, finalRows);
+        }
+        return null;
+    }
+
+    private Map<String, Object> previewUnionGraphNode(DatasetGroupInfoDTO datasetGroupInfoDTO,
+                                                      Map<String, Object> unionNode,
+                                                      Map<String, Map<String, Object>> nodeMap,
+                                                      Map<String, List<String>> incomingMap,
+                                                      Integer start,
+                                                      Integer count,
+                                                      boolean checkPermission) throws Exception {
+        List<String> upstreamIds = incomingMap.getOrDefault(asString(unionNode.get("id")), Collections.emptyList());
+        if (upstreamIds.size() != 2) {
+            return null;
+        }
+        Map<String, Object> leftNode = resolveGraphDataNode(upstreamIds.get(0), nodeMap, incomingMap, new HashSet<>());
+        Map<String, Object> rightNode = resolveGraphDataNode(upstreamIds.get(1), nodeMap, incomingMap, new HashSet<>());
+        if (leftNode == null || rightNode == null) {
+            return null;
+        }
+
+        Map<String, Object> leftPreview = previewSingleGraphNode(datasetGroupInfoDTO, leftNode, start, count, checkPermission);
+        Map<String, Object> rightPreview = previewSingleGraphNode(datasetGroupInfoDTO, rightNode, start, count, checkPermission);
+        if (leftPreview == null || rightPreview == null) {
+            return null;
+        }
+
+        List<DatasetTableFieldDTO> leftFields = extractPreviewFields(leftPreview);
+        List<DatasetTableFieldDTO> rightFields = extractPreviewFields(rightPreview);
+        if (leftFields.size() != rightFields.size()) {
+            return null;
+        }
+        for (int i = 0; i < leftFields.size(); i++) {
+            if (!Objects.equals(normalizeFieldKind(leftFields.get(i)), normalizeFieldKind(rightFields.get(i)))) {
+                return null;
+            }
+        }
+
+        List<LinkedHashMap<String, Object>> leftRows = extractPreviewRows(leftPreview);
+        List<LinkedHashMap<String, Object>> rightRows = extractPreviewRows(rightPreview);
+        List<String> leftKeys = leftFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
+        List<String> rightKeys = rightFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
+
+        List<LinkedHashMap<String, Object>> mergedRows = new ArrayList<>(leftRows);
+        for (LinkedHashMap<String, Object> row : rightRows) {
+            LinkedHashMap<String, Object> mapped = new LinkedHashMap<>();
+            for (int i = 0; i < leftKeys.size(); i++) {
+                mapped.put(leftKeys.get(i), row.get(rightKeys.get(i)));
+            }
+            mergedRows.add(mapped);
+        }
+
+        String unionMode = "all";
+        Object cfgObj = unionNode.get("operationConfig");
+        if (cfgObj instanceof Map<?, ?> cfgMap && cfgMap.get("unionMode") != null) {
+            unionMode = String.valueOf(cfgMap.get("unionMode"));
+        }
+        List<LinkedHashMap<String, Object>> finalRows = mergedRows;
+        if ("distinct".equalsIgnoreCase(unionMode)) {
+            Set<String> seen = new LinkedHashSet<>();
+            finalRows = mergedRows.stream().filter(row -> {
+                String sig = String.valueOf(JsonUtil.toJSONString(leftKeys.stream().map(key -> row.get(key)).collect(Collectors.toList())));
+                if (seen.contains(sig)) {
+                    return false;
+                }
+                seen.add(sig);
+                return true;
+            }).collect(Collectors.toList());
+        }
+        return buildCustomPreviewResult(datasetGroupInfoDTO, leftFields, finalRows);
+    }
+
+    private List<LinkedHashMap<String, Object>> buildUnionPreviewRows(DatasetGroupInfoDTO datasetGroupInfoDTO,
+                                                                      Map<String, Object> unionNode,
+                                                                      Map<String, Map<String, Object>> nodeMap,
+                                                                      Map<String, List<String>> incomingMap,
+                                                                      Integer start,
+                                                                      Integer count,
+                                                                      boolean checkPermission) throws Exception {
+        List<String> upstreamIds = incomingMap.getOrDefault(asString(unionNode.get("id")), Collections.emptyList());
+        if (upstreamIds.size() != 2) {
+            return null;
+        }
+        Map<String, Object> leftNode = resolveGraphDataNode(upstreamIds.get(0), nodeMap, incomingMap, new HashSet<>());
+        Map<String, Object> rightNode = resolveGraphDataNode(upstreamIds.get(1), nodeMap, incomingMap, new HashSet<>());
+        if (leftNode == null || rightNode == null) {
+            return null;
+        }
+
+        Map<String, Object> leftPreview = previewSingleGraphNode(datasetGroupInfoDTO, leftNode, start, count, checkPermission);
+        Map<String, Object> rightPreview = previewSingleGraphNode(datasetGroupInfoDTO, rightNode, start, count, checkPermission);
+        if (leftPreview == null || rightPreview == null) {
+            return null;
+        }
+        List<DatasetTableFieldDTO> leftFields = extractPreviewFields(leftPreview);
+        List<DatasetTableFieldDTO> rightFields = extractPreviewFields(rightPreview);
+        if (leftFields.size() != rightFields.size()) {
+            return null;
+        }
+        for (int i = 0; i < leftFields.size(); i++) {
+            if (!Objects.equals(normalizeFieldKind(leftFields.get(i)), normalizeFieldKind(rightFields.get(i)))) {
+                return null;
+            }
+        }
+
+        List<LinkedHashMap<String, Object>> leftRows = extractPreviewRows(leftPreview);
+        List<LinkedHashMap<String, Object>> rightRows = extractPreviewRows(rightPreview);
+        List<String> leftKeys = leftFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
+        List<String> rightKeys = rightFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
+
+        List<LinkedHashMap<String, Object>> mergedRows = new ArrayList<>(leftRows);
+        for (LinkedHashMap<String, Object> row : rightRows) {
+            LinkedHashMap<String, Object> mapped = new LinkedHashMap<>();
+            for (int i = 0; i < leftKeys.size(); i++) {
+                mapped.put(leftKeys.get(i), row.get(rightKeys.get(i)));
+            }
+            mergedRows.add(mapped);
+        }
+
+        String unionMode = "all";
+        Object cfgObj = unionNode.get("operationConfig");
+        if (cfgObj instanceof Map<?, ?> cfgMap && cfgMap.get("unionMode") != null) {
+            unionMode = String.valueOf(cfgMap.get("unionMode"));
+        }
+        if ("distinct".equalsIgnoreCase(unionMode)) {
+            Set<String> seen = new LinkedHashSet<>();
+            return mergedRows.stream().filter(row -> {
+                String sig = String.valueOf(JsonUtil.toJSONString(leftKeys.stream().map(key -> row.get(key)).collect(Collectors.toList())));
+                if (seen.contains(sig)) {
+                    return false;
+                }
+                seen.add(sig);
+                return true;
+            }).collect(Collectors.toList());
+        }
+        return mergedRows;
+    }
+
+    private Map<String, Object> previewSingleGraphNode(DatasetGroupInfoDTO datasetGroupInfoDTO,
+                                                       Map<String, Object> graphNode,
+                                                       Integer start,
+                                                       Integer count,
+                                                       boolean checkPermission) throws Exception {
+        DatasetGroupInfoDTO req = new DatasetGroupInfoDTO();
+        req.setId(datasetGroupInfoDTO.getId());
+        req.setNodeType(datasetGroupInfoDTO.getNodeType());
+        req.setType(datasetGroupInfoDTO.getType());
+        req.setMode(datasetGroupInfoDTO.getMode());
+
+        DatasetTableDTO currentDs = new DatasetTableDTO();
+        currentDs.setId(toLong(graphNode.get("id")));
+        currentDs.setTableName(asString(graphNode.get("tableName")));
+        currentDs.setDatasourceId(toLong(graphNode.get("datasourceId")));
+        currentDs.setType(asString(graphNode.get("type")));
+        currentDs.setInfo(asString(graphNode.get("info")));
+        currentDs.setSqlVariableDetails(asString(graphNode.get("sqlVariableDetails")));
+        currentDs.setDatasetGroupId(toLong(graphNode.get("datasetId")));
+
+        List<DatasetTableFieldDTO> fields = extractGraphNodeFields(datasetGroupInfoDTO, graphNode);
+        if (CollectionUtils.isEmpty(fields)) {
+            return null;
+        }
+        UnionDTO unionDTO = new UnionDTO();
+        unionDTO.setCurrentDs(currentDs);
+        unionDTO.setCurrentDsFields(fields);
+        unionDTO.setChildrenDs(new ArrayList<>());
+        req.setUnion(Collections.singletonList(unionDTO));
+        req.setAllFields(fields);
+        req.setGraphState(null);
+        req.setSortFields(null);
+        return previewDataWithLimit(req, start, count, checkPermission);
+    }
+
+    private Map<String, Object> resolveGraphDataNode(String nodeId,
+                                                     Map<String, Map<String, Object>> nodeMap,
+                                                     Map<String, List<String>> incomingMap,
+                                                     Set<String> visited) {
+        if (StringUtils.isBlank(nodeId) || !visited.add(nodeId)) {
+            return null;
+        }
+        Map<String, Object> node = nodeMap.get(nodeId);
+        if (node == null) {
+            return null;
+        }
+        String type = asString(node.get("type"));
+        if (Arrays.asList("db", "sql", "dataset").contains(type)) {
+            return node;
+        }
+        if ("mirror".equals(type)) {
+            String sourceNodeId = asString(node.get("sourceNodeId"));
+            if (StringUtils.isNotBlank(sourceNodeId)) {
+                Map<String, Object> sourceNode = resolveGraphDataNode(sourceNodeId, nodeMap, incomingMap, visited);
+                if (sourceNode != null) {
+                    return sourceNode;
+                }
+            }
+        }
+        for (String upstreamId : incomingMap.getOrDefault(nodeId, Collections.emptyList())) {
+            Map<String, Object> sourceNode = resolveGraphDataNode(upstreamId, nodeMap, incomingMap, visited);
+            if (sourceNode != null) {
+                return sourceNode;
+            }
+        }
+        return null;
+    }
+
+    private List<DatasetTableFieldDTO> extractGraphNodeFields(DatasetGroupInfoDTO datasetGroupInfoDTO, Map<String, Object> graphNode) {
+        String nodeId = asString(graphNode.get("id"));
+        List<DatasetTableFieldDTO> fields = datasetGroupInfoDTO.getAllFields() == null ? new ArrayList<>() :
+                datasetGroupInfoDTO.getAllFields().stream()
+                        .filter(field -> Objects.equals(asString(field.getDatasetTableId()), nodeId))
+                        .map(this::cloneField)
+                        .collect(Collectors.toList());
+        if (!CollectionUtils.isEmpty(fields)) {
+            return fields;
+        }
+        Object currentDsFields = graphNode.get("currentDsFields");
+        if (currentDsFields == null) {
+            return fields;
+        }
+        List<DatasetTableFieldDTO> parsed = JsonUtil.parseList(String.valueOf(JsonUtil.toJSONString(currentDsFields)), new TypeReference<List<DatasetTableFieldDTO>>() {});
+        Long datasetTableId = toLong(graphNode.get("id"));
+        Long datasourceId = toLong(graphNode.get("datasourceId"));
+        parsed.forEach(field -> {
+            if (field.getDatasetTableId() == null) field.setDatasetTableId(datasetTableId);
+            if (field.getDatasourceId() == null) field.setDatasourceId(datasourceId);
+            if (field.getChecked() == null) field.setChecked(Boolean.TRUE);
+        });
+        return parsed;
+    }
+
+    private List<LinkedHashMap<String, Object>> applyDirectOperationPreview(String opType,
+                                                                            Map<String, Object> operationNode,
+                                                                            List<LinkedHashMap<String, Object>> rows,
+                                                                            List<DatasetTableFieldDTO> fields) {
+        if ("sample".equals(opType)) {
+            return applySampleRows(rows, operationNode);
+        }
+        if ("deduplicate".equals(opType)) {
+            return applyDeduplicateRows(rows, fields, operationNode);
+        }
+        if ("group".equals(opType)) {
+            return applyGroupRows(rows, fields, operationNode);
+        }
+        return rows;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<LinkedHashMap<String, Object>> applySampleRows(List<LinkedHashMap<String, Object>> rows, Map<String, Object> operationNode) {
+        Object cfgObj = operationNode.get("operationConfig");
+        Map<String, Object> cfg = cfgObj instanceof Map ? (Map<String, Object>) cfgObj : Collections.emptyMap();
+        int size;
+        if ("percent".equals(asString(cfg.get("sampleType")))) {
+            double p = Math.max(1D, Math.min(100D, toDouble(cfg.get("samplePercent"), 10D)));
+            size = Math.max(1, (int) Math.floor(rows.size() * p / 100D));
+        } else {
+            size = Math.max(1, toInt(cfg.get("sampleCount"), 10));
+        }
+        return new ArrayList<>(rows.subList(0, Math.min(size, rows.size())));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<LinkedHashMap<String, Object>> applyDeduplicateRows(List<LinkedHashMap<String, Object>> rows,
+                                                                     List<DatasetTableFieldDTO> fields,
+                                                                     Map<String, Object> operationNode) {
+        Object cfgObj = operationNode.get("operationConfig");
+        Map<String, Object> cfg = cfgObj instanceof Map ? (Map<String, Object>) cfgObj : Collections.emptyMap();
+        List<String> keyFields = parseFieldConfig(cfg.get("deduplicateFields")).stream()
+                .map(f -> resolveFieldKey(f, fields))
+                .collect(Collectors.toList());
+        boolean keepLast = "last".equals(asString(cfg.get("keepStrategy")));
+        List<LinkedHashMap<String, Object>> source = keepLast ? new ArrayList<>(rows) : rows;
+        if (keepLast) Collections.reverse(source);
+        Set<String> seen = new LinkedHashSet<>();
+        List<LinkedHashMap<String, Object>> out = new ArrayList<>();
+        for (LinkedHashMap<String, Object> row : source) {
+            String sign = CollectionUtils.isEmpty(keyFields)
+                    ? String.valueOf(JsonUtil.toJSONString(new ArrayList<>(row.values())))
+                    : String.valueOf(JsonUtil.toJSONString(keyFields.stream().map(key -> row.get(key)).collect(Collectors.toList())));
+            if (seen.add(sign)) out.add(row);
+        }
+        if (keepLast) Collections.reverse(out);
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<LinkedHashMap<String, Object>> applyGroupRows(List<LinkedHashMap<String, Object>> rows,
+                                                               List<DatasetTableFieldDTO> fields,
+                                                               Map<String, Object> operationNode) {
+        Object cfgObj = operationNode.get("operationConfig");
+        Map<String, Object> cfg = cfgObj instanceof Map ? (Map<String, Object>) cfgObj : Collections.emptyMap();
+        List<String> groupKeys = parseFieldConfig(cfg.get("groupFields")).stream()
+                .map(f -> resolveFieldKey(f, fields))
+                .filter(StringUtils::isNotBlank)
+                .collect(Collectors.toList());
+        String aggField = resolveFieldKey(asString(cfg.get("aggField")), fields);
+        String aggType = asString(cfg.get("aggType"));
+        if (CollectionUtils.isEmpty(groupKeys) || StringUtils.isBlank(aggField)) {
+            return rows;
+        }
+        Map<String, LinkedHashMap<String, Object>> baseMap = new LinkedHashMap<>();
+        Map<String, List<Double>> valuesMap = new LinkedHashMap<>();
+        for (LinkedHashMap<String, Object> row : rows) {
+            String groupKey = String.valueOf(JsonUtil.toJSONString(groupKeys.stream().map(key -> row.get(key)).collect(Collectors.toList())));
+            baseMap.computeIfAbsent(groupKey, k -> {
+                LinkedHashMap<String, Object> base = new LinkedHashMap<>();
+                groupKeys.forEach(key -> base.put(key, row.get(key)));
+                return base;
+            });
+            Double n = toNullableDouble(row.get(aggField));
+            valuesMap.computeIfAbsent(groupKey, k -> new ArrayList<>());
+            if (n != null) valuesMap.get(groupKey).add(n);
+        }
+        List<LinkedHashMap<String, Object>> result = new ArrayList<>();
+        baseMap.forEach((groupKey, base) -> {
+            List<Double> values = valuesMap.getOrDefault(groupKey, Collections.emptyList());
+            Object aggValue;
+            switch (aggType) {
+                case "count" -> aggValue = values.size();
+                case "avg" -> aggValue = values.isEmpty() ? 0D : values.stream().mapToDouble(Double::doubleValue).average().orElse(0D);
+                case "max" -> aggValue = values.isEmpty() ? null : values.stream().mapToDouble(Double::doubleValue).max().orElse(0D);
+                case "min" -> aggValue = values.isEmpty() ? null : values.stream().mapToDouble(Double::doubleValue).min().orElse(0D);
+                default -> aggValue = values.isEmpty() ? 0D : values.stream().mapToDouble(Double::doubleValue).sum();
+            }
+            LinkedHashMap<String, Object> row = new LinkedHashMap<>(base);
+            row.put(aggField, aggValue);
+            result.add(row);
+        });
+        return result;
+    }
+
+    private List<DatasetTableFieldDTO> extractPreviewFields(Map<String, Object> previewData) {
+        Object fieldObj = previewData.get("fields");
+        if (fieldObj == null && previewData.get("data") instanceof Map<?, ?> dataMap) {
+            fieldObj = dataMap.get("fields");
+        }
+        if (fieldObj == null) return new ArrayList<>();
+        return JsonUtil.parseList(String.valueOf(JsonUtil.toJSONString(fieldObj)), new TypeReference<List<DatasetTableFieldDTO>>() {});
+    }
+
+    private List<LinkedHashMap<String, Object>> extractPreviewRows(Map<String, Object> previewData) {
+        Object dataObj = previewData.get("data");
+        if (dataObj instanceof Map<?, ?> dataMap) {
+            dataObj = dataMap.get("data");
+        }
+        if (dataObj == null) return new ArrayList<>();
+        return JsonUtil.parseList(String.valueOf(JsonUtil.toJSONString(dataObj)), new TypeReference<List<LinkedHashMap<String, Object>>>() {});
+    }
+
+    private Map<String, Object> buildCustomPreviewResult(DatasetGroupInfoDTO datasetGroupInfoDTO,
+                                                         List<DatasetTableFieldDTO> fields,
+                                                         List<LinkedHashMap<String, Object>> rows) {
+        Map<String, Object> previewData = new LinkedHashMap<>();
+        previewData.put("fields", fields);
+        previewData.put("data", rows);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("data", previewData);
+        if (ObjectUtils.isEmpty(datasetGroupInfoDTO.getId())) {
+            result.put("allFields", fields);
+        } else {
+            result.put("allFields", datasetTableFieldManage.selectByDatasetGroupId(datasetGroupInfoDTO.getId()));
+        }
+        result.put("total", (long) rows.size());
+        return result;
+    }
+
+    private String resolveFieldKey(DatasetTableFieldDTO field) {
+        if (field == null) return "";
+        return StringUtils.isNotBlank(field.getDataeaseName()) ? field.getDataeaseName() : field.getOriginName();
+    }
+
+    private String resolveFieldKey(String fieldKey, List<DatasetTableFieldDTO> fields) {
+        for (DatasetTableFieldDTO field : fields) {
+            if (Objects.equals(fieldKey, field.getDataeaseName())
+                    || Objects.equals(fieldKey, field.getOriginName())
+                    || Objects.equals(fieldKey, field.getName())
+                    || Objects.equals(fieldKey, asString(field.getId()))) {
+                return resolveFieldKey(field);
+            }
+        }
+        return fieldKey;
+    }
+
+    private String normalizeFieldKind(DatasetTableFieldDTO field) {
+        int t = field != null && field.getDeType() != null ? field.getDeType() : 0;
+        if (t == 2 || t == 3 || t == 4) return "value";
+        return t == 1 ? "time" : "text";
+    }
+
+    private List<String> parseFieldConfig(Object value) {
+        if (value == null) return new ArrayList<>();
+        if (value instanceof List<?> list) {
+            return list.stream().filter(Objects::nonNull).map(String::valueOf).map(String::trim).filter(StringUtils::isNotBlank).collect(Collectors.toList());
+        }
+        return Arrays.stream(String.valueOf(value).split(",")).map(String::trim).filter(StringUtils::isNotBlank).collect(Collectors.toList());
+    }
+
+    private DatasetTableFieldDTO cloneField(DatasetTableFieldDTO source) {
+        DatasetTableFieldDTO target = new DatasetTableFieldDTO();
+        BeanUtils.copyBean(target, source);
+        return target;
+    }
+
+    private String asString(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private Long toLong(Object value) {
+        try {
+            return value == null || StringUtils.isBlank(String.valueOf(value)) ? null : Long.valueOf(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Integer toInt(Object value, Integer defaultValue) {
+        try {
+            return value == null || StringUtils.isBlank(String.valueOf(value)) ? defaultValue : Integer.valueOf(String.valueOf(value));
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    private Double toDouble(Object value, Double defaultValue) {
+        try {
+            return value == null || StringUtils.isBlank(String.valueOf(value)) ? defaultValue : Double.valueOf(String.valueOf(value));
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    private Double toNullableDouble(Object value) {
+        try {
+            return value == null || StringUtils.isBlank(String.valueOf(value)) ? null : Double.valueOf(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -1094,8 +1687,11 @@ public class DatasetDataManage {
         SQLMeta sqlMeta = new SQLMeta();
         Table2SQLObj.table2sqlobj(sqlMeta, null, "(" + sql + ")", crossDs);
 
-        for (Long id : ids) {
-            DatasetTableFieldDTO f = datasetTableFieldManage.selectById(id);
+        // 将 idStrs 转换为 Long 类型列表
+        List<Long> idLongs = idStrs.stream().map(Long::parseLong).toList();
+        
+        for (Long fieldId : idLongs) {
+            DatasetTableFieldDTO f = datasetTableFieldManage.selectById(fieldId);
             if (f == null) {
                 DEException.throwException(Translator.get("i18n_no_field"));
             }
