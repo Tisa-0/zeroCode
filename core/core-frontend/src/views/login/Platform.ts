@@ -67,7 +67,7 @@ export const callback = () => {
 }
 
 const getCurLocation = () => {
-  let queryRedirectPath = '/workbranch/index'
+  let queryRedirectPath = '/data/dataset'
   if (router.currentRoute.value.query.redirect) {
     queryRedirectPath = router.currentRoute.value.query.redirect as string
   }

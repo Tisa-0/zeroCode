@@ -20,19 +20,11 @@ import CreatDsGroup from './form/CreatDsGroup.vue'
 import type { BusiTreeNode, BusiTreeRequest } from '@/models/tree/TreeNode'
 import { delDatasetTree, getDatasetDetails, getPreviewData, barInfoApi } from '@/api/dataset'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
-import DeResourceGroupOpt from '@/views/common/DeResourceGroupOpt.vue'
 import DatasetDetail from './DatasetDetail.vue'
-import { guid } from '@/views/visualized/data/dataset/form/util'
-import { save } from '@/api/visualization/dataVisualization'
 import { cloneDeep } from 'lodash-es'
 import { fieldType } from '@/utils/attr'
 import { useAppStoreWithOut } from '@/store/modules/app'
 import treeSort from '@/utils/treeSortUtils'
-
-import {
-  DEFAULT_CANVAS_STYLE_DATA_LIGHT,
-  DEFAULT_CANVAS_STYLE_DATA_SCREEN_DARK
-} from '@/views/chart/components/editor/util/dataVisualization'
 import type { TabPaneName } from 'element-plus-secondary'
 import { timestampFormatDate } from './form/util'
 import { interactiveStoreWithOut } from '@/store/modules/interactive'
@@ -68,22 +60,10 @@ const state = reactive({
   curSortType: 'time_desc'
 })
 
-const resourceGroupOpt = ref()
-const curCanvasType = ref('')
 const mounted = ref(false)
 
 const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
 const isIframe = computed(() => appStore.getIsIframe)
-const createPanel = path => {
-  const baseUrl = `#/${path}?opt=create&id=${nodeInfo.id}`
-  window.open(baseUrl, '_blank')
-}
-
-const resourceOptFinish = param => {
-  if (param && param.opt === 'newLeaf') {
-    resourceCreate(param.pid, param.name)
-  }
-}
 
 let originResourceTree = []
 
@@ -91,34 +71,6 @@ const sortTypeChange = sortType => {
   state.datasetTree = treeSort(originResourceTree, sortType)
   state.curSortType = sortType
   wsCache.set('TreeSort-dataset', state.curSortType)
-}
-
-const resourceCreate = (pid, name) => {
-  // 新建基础信息
-  const newResourceId = guid()
-  const bashResourceInfo = {
-    dataState: 'ready',
-    id: newResourceId,
-    name: name,
-    pid: pid,
-    type: curCanvasType.value,
-    status: 1,
-    selfWatermarkStatus: true
-  }
-  const canvasStyleDataNew =
-    curCanvasType.value === 'dashboard'
-      ? DEFAULT_CANVAS_STYLE_DATA_LIGHT
-      : DEFAULT_CANVAS_STYLE_DATA_SCREEN_DARK
-  const canvasInfo = {
-    canvasStyleData: JSON.stringify(canvasStyleDataNew),
-    componentData: JSON.stringify([]),
-    canvasViewInfo: {},
-    ...bashResourceInfo
-  }
-  save(canvasInfo).then(() => {
-    const baseUrl = curCanvasType.value === 'dataV' ? '#/dvCanvas?dvId=' : '#/dashboard?resourceId='
-    window.open(baseUrl + newResourceId, '_blank')
-  })
 }
 
 const creatDsFolder = ref()
@@ -765,16 +717,6 @@ const getMenuList = (val: boolean) => {
               ></dataset-detail>
             </el-popover>
             <div class="right-btn">
-              <el-button secondary @click="createPanel('dashboard')" v-permission="['panel']">
-                <template #icon>
-                  <Icon name="icon_dashboard_outlined"></Icon>
-                </template>
-                {{ t('visualization.panelAdd') }}
-              </el-button>
-              <el-button secondary @click="createPanel('dvCanvas')" v-permission="['screen']">
-                <template #icon> <Icon name="icon_operation-analysis_outlined"></Icon> </template
-                >新建数据大屏
-              </el-button>
               <el-button type="primary" @click="editorDataset" v-if="nodeInfo.weight >= 7">
                 <template #icon>
                   <Icon name="icon_edit_outlined"></Icon>
@@ -878,11 +820,6 @@ const getMenuList = (val: boolean) => {
         <empty-background :description="t('deDataset.on_the_left')" img-type="select" />
       </template>
     </div>
-    <de-resource-group-opt
-      :cur-canvas-type="curCanvasType"
-      @finish="resourceOptFinish"
-      ref="resourceGroupOpt"
-    ></de-resource-group-opt>
     <creat-ds-group @finish="getData()" ref="creatDsFolder"></creat-ds-group>
   </div>
 </template>

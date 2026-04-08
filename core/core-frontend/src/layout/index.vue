@@ -12,7 +12,6 @@ import { XpackComponent } from '@/components/plugin'
 const route = useRoute()
 const systemMenu = computed(() => route.path.includes('system'))
 const settingMenu = computed(() => route.path.includes('sys-setting'))
-const marketMenu = computed(() => route.path.includes('template-market'))
 const toolboxMenu = computed(() => route.path.includes('toolbox'))
 const isCollapse = ref(false)
 const setCollapse = () => {
@@ -23,8 +22,8 @@ const setCollapse = () => {
 <template>
   <div class="common-layout">
     <HeaderSystem
-      v-if="settingMenu || marketMenu || toolboxMenu"
-      :title="toolboxMenu ? '工具箱' : marketMenu ? '模板中心' : ''"
+      v-if="settingMenu || toolboxMenu"
+      :title="toolboxMenu ? '工具箱' : ''"
     />
     <Header v-else></Header>
     <el-container class="layout-container">

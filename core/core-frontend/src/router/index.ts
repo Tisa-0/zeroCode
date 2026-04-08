@@ -6,56 +6,16 @@ export const routes: AppRouteRecordRaw[] = [
   {
     path: '/',
     name: 'index',
-    redirect: '/workbranch/index',
-    component: () => import('@/layout/index.vue'),
+    redirect: '/data/dataset',
     hidden: true,
-    meta: {},
-    children: [
-      {
-        path: 'workbranch',
-        name: 'workbranch',
-        hidden: true,
-        component: () => import('@/views/workbranch/index.vue'),
-        meta: { hidden: true }
-      }
-    ]
-  },
-  {
-    path: '/copilot',
-    name: 'copilot',
-    component: () => import('@/layout/index.vue'),
-    hidden: true,
-    meta: {},
-    children: [
-      {
-        path: 'index',
-        name: 'cpt',
-        hidden: true,
-        component: () => import('@/views/copilot/index.vue'),
-        meta: { hidden: true }
-      }
-    ]
+    meta: {}
   },
   {
     path: '/notSupport',
     name: 'notSupport',
     hidden: true,
     meta: {},
-    component: () => import('@/views/mobile/panel/NotSupport.vue')
-  },
-  {
-    path: '/login',
-    name: 'login',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/login/index.vue')
-  },
-  {
-    path: '/admin-login',
-    name: 'admin-login',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/login/index.vue')
+    component: () => import('@/views/common/NotSupport.vue')
   },
   {
     path: '/401',
@@ -65,71 +25,6 @@ export const routes: AppRouteRecordRaw[] = [
     component: () => import('@/views/401/index.vue')
   },
   {
-    path: '/dvCanvas',
-    name: 'dvCanvas',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/data-visualization/index.vue')
-  },
-  {
-    path: '/dashboard',
-    name: 'dashboard',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/dashboard/index.vue')
-  },
-  {
-    path: '/dashboardPreview',
-    name: 'dashboardPreview',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/dashboard/DashboardPreviewShow.vue')
-  },
-  {
-    path: '/chart',
-    name: 'chart',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/chart/index.vue')
-  },
-  {
-    path: '/previewShow',
-    name: 'previewShow',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/data-visualization/PreviewShow.vue')
-  },
-  {
-    path: '/DeResourceTree',
-    name: 'DeResourceTree',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/common/DeResourceTree.vue')
-  },
-  {
-    path: '/data',
-    name: 'data',
-    component: () => import('@/layout/index.vue'),
-    hidden: true,
-    meta: {},
-    children: [
-      {
-        path: 'datasource',
-        name: 'datasource',
-        component: () => import('@/views/visualized/data/datasource/index.vue'),
-        meta: {},
-        hidden: true
-      },
-      {
-        path: 'dataset',
-        name: 'dataset',
-        component: () => import('@/views/visualized/data/dataset/index.vue'),
-        meta: {},
-        hidden: true
-      }
-    ]
-  },
-  {
     path: '/dataset-form',
     name: 'dataset-form',
     hidden: true,
@@ -137,11 +32,18 @@ export const routes: AppRouteRecordRaw[] = [
     component: () => import('@/views/visualized/data/dataset/form/index.vue')
   },
   {
-    path: '/dataset-embedded',
-    name: 'dataset-embedded',
+    path: '/data/dataset/:id?',
+    name: 'dataset',
     hidden: true,
     meta: {},
     component: () => import('@/views/visualized/data/dataset/index.vue')
+  },
+  {
+    path: '/data/datasource/:id?',
+    name: 'datasource',
+    hidden: true,
+    meta: {},
+    component: () => import('@/views/visualized/data/datasource/index.vue')
   },
   {
     path: '/dataset-embedded-form',
@@ -151,48 +53,11 @@ export const routes: AppRouteRecordRaw[] = [
     component: () => import('@/views/visualized/data/dataset/form/index.vue')
   },
   {
-    path: '/preview',
-    name: 'preview',
+    path: '/:catchAll(.*)',
+    name: 'catch-all',
     hidden: true,
     meta: {},
-    component: () => import('@/views/data-visualization/PreviewCanvas.vue')
-  },
-  {
-    path: '/de-link/:uuid',
-    name: 'link',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/data-visualization/LinkContainer.vue')
-  },
-  {
-    path: '/rich-text',
-    name: 'rich-text',
-    hidden: true,
-    meta: {},
-    component: () => import('@/custom-component/rich-text/DeRichTextView.vue')
-  },
-  {
-    path: '/modify-pwd',
-    name: 'modify-pwd',
-    hidden: true,
-    meta: {},
-    component: () => import('@/layout/index.vue'),
-    children: [
-      {
-        path: 'index',
-        name: 'mpi',
-        hidden: true,
-        component: () => import('@/views/system/modify-pwd/index.vue'),
-        meta: { hidden: true }
-      }
-    ]
-  },
-  {
-    path: '/chart-view',
-    name: 'chart-view',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/chart/ChartView.vue')
+    redirect: '/data/dataset'
   }
 ]
 
@@ -202,7 +67,16 @@ const router = createRouter({
 })
 
 export const resetRouter = (): void => {
-  const resetWhiteNameList = ['Login']
+  const resetWhiteNameList = [
+    'index',
+    'notSupport',
+    '401',
+    'dataset-form',
+    'dataset',
+    'datasource',
+    'dataset-embedded-form',
+    'catch-all'
+  ]
   router.getRoutes().forEach(route => {
     const { name } = route
     if (name && !resetWhiteNameList.includes(name as string)) {

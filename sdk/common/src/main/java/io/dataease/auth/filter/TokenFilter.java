@@ -13,6 +13,29 @@ import java.util.Objects;
 
 public class TokenFilter implements Filter {
 
+    private String normalizeRequestUri(String requestURI) {
+        if (StringUtils.startsWith(requestURI, WhitelistUtils.getContextPath())) {
+            requestURI = requestURI.replaceFirst(WhitelistUtils.getContextPath(), "");
+        }
+        if (StringUtils.startsWith(requestURI, AuthConstant.DE_API_PREFIX)) {
+            requestURI = requestURI.replaceFirst(AuthConstant.DE_API_PREFIX, "");
+        }
+        return requestURI;
+    }
+
+    private boolean matchPasswordlessDatasetMode(String requestURI) {
+        String normalized = normalizeRequestUri(requestURI);
+        return StringUtils.startsWithAny(
+                normalized,
+                "/datasource",
+                "/dataset",
+                "/datasetTree",
+                "/datasetData",
+                "/datasetField",
+                "/embedded"
+        );
+    }
+
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
     }
@@ -52,6 +75,11 @@ public class TokenFilter implements Filter {
             return;
         }
         String token = ServletUtils.getToken();
+        if (StringUtils.isBlank(token) && matchPasswordlessDatasetMode(requestURI)) {
+            UserUtils.setDesktopUser();
+            filterChain.doFilter(servletRequest, servletResponse);
+            return;
+        }
         TokenUserBO userBO = TokenUtils.validate(token);
         UserUtils.setUserInfo(userBO);
         filterChain.doFilter(servletRequest, servletResponse);

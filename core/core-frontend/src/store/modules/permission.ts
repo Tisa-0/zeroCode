@@ -15,7 +15,7 @@ export interface PermissionState {
 
 export const usePermissionStore = defineStore('permission', {
   state: (): PermissionState => ({
-    routers: [],
+    routers: cloneDeep(routes),
     addRouters: [],
     isAddRouters: false,
     currentPath: ''
@@ -79,6 +79,18 @@ export const usePermissionStoreWithOut = () => {
 export const pathValid = path => {
   const permissionStore = usePermissionStore(store)
   const routers = permissionStore.getRouters
+  const normalizedPath = path.startsWith('/') ? path : '/' + path
+  const flatMatch = (routers || []).some(router => {
+    const routePath = router.path || ''
+    return (
+      routePath === normalizedPath ||
+      routePath.startsWith(normalizedPath + '/:') ||
+      routePath.startsWith(normalizedPath + '/')
+    )
+  })
+  if (flatMatch) {
+    return true
+  }
   const temp = path.startsWith('/') ? path.substr(1) : path
   const locations = temp.split('/')
   if (locations.length === 0) {

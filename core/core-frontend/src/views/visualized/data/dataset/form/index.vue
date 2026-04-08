@@ -234,6 +234,137 @@ const saveActiveWorkspaceSnapshot = () => {
   }
 }
 
+const syncSavedDatasetMeta = (res?: any) => {
+  if (!res || typeof res !== 'object') return
+  const { id, pid, name, allFields } = res as Record<string, any>
+  if (id !== undefined && id !== null) nodeInfo.id = String(id)
+  if (pid !== undefined && pid !== null) nodeInfo.pid = String(pid)
+  if (typeof name === 'string' && name.trim()) {
+    nodeInfo.name = name
+    datasetName.value = name
+  }
+  if (Array.isArray(allFields)) {
+    allfields.value = allFields
+  }
+}
+
+const buildSavedDatasetTreeNode = (res?: any) => {
+  if (!res || typeof res !== 'object') return null
+  const { id, pid, name, weight, extraFlag, createTime } = res as Record<string, any>
+  if (id === undefined || id === null) return null
+  return {
+    id: String(id),
+    pid: String(pid ?? '0'),
+    name: name || datasetName.value || '未命名数据集',
+    leaf: true,
+    nodeType: 'dataset',
+    weight: weight ?? 7,
+    extraFlag: extraFlag ?? 0,
+    type: 'dataset',
+    createTime: createTime ?? Date.now(),
+    children: undefined
+  }
+}
+
+const upsertDatasetTreeNode = (nodes: any[], node: any) => {
+  for (const item of nodes || []) {
+    if (String(item.id) === String(node.id)) {
+      item.name = node.name
+      item.pid = node.pid
+      item.leaf = true
+      item.nodeType = 'dataset'
+      item.type = 'dataset'
+      item.createTime = node.createTime
+      return true
+    }
+    if (item.children?.length && upsertDatasetTreeNode(item.children, node)) {
+      return true
+    }
+  }
+  return false
+}
+
+const appendDatasetTreeNode = (nodes: any[], pid: string, node: any) => {
+  for (const item of nodes || []) {
+    if (String(item.id) === String(pid)) {
+      item.children = item.children || []
+      const exists = item.children.some(child => String(child.id) === String(node.id))
+      if (!exists) item.children.push(node)
+      return true
+    }
+    if (item.children?.length && appendDatasetTreeNode(item.children, pid, node)) {
+      return true
+    }
+  }
+  return false
+}
+
+const syncDatasetPanelNode = (res?: any) => {
+  const savedNode = buildSavedDatasetTreeNode(res)
+  if (!savedNode) return
+  const nextTree = cloneDeep(originDatasetListForPanel.value || [])
+  if (upsertDatasetTreeNode(nextTree, savedNode)) {
+    originDatasetListForPanel.value = nextTree
+    applyDatasetPanelSort()
+    nextTick(() => panelDatasetTreeRef.value?.filter(panelSearchKeyword.value))
+    return
+  }
+  const inserted = appendDatasetTreeNode(nextTree, savedNode.pid, savedNode)
+  if (inserted) {
+    originDatasetListForPanel.value = nextTree
+    applyDatasetPanelSort()
+    nextTick(() => panelDatasetTreeRef.value?.filter(panelSearchKeyword.value))
+  }
+}
+
+const refreshDatasetPanel = (res?: any) => {
+  syncDatasetPanelNode(res)
+  setTimeout(() => {
+    getDatasetList()
+  }, 300)
+}
+
+const buildDatasourceTableNodes = (datasourceId: string, tables: any[] = []) => {
+  return tables.map((t: any) => ({
+    ...t,
+    id: `${datasourceId}_${t.tableName || t.name}`,
+    name: t.tableName || t.name,
+    tableName: t.tableName || t.name,
+    datasourceId,
+    leaf: true,
+    children: undefined
+  }))
+}
+
+const loadDatasourceTables = async (data: any, node?: any) => {
+  if (!data || data.leaf || data._loadingTables) return
+  if (data._tablesLoaded && Array.isArray(data.children)) {
+    await nextTick()
+    node?.expand?.()
+    return
+  }
+  data._loadingTables = true
+  try {
+    const tables = await getTables({ datasourceId: data.id })
+    data.children = Array.isArray(tables) ? buildDatasourceTableNodes(String(data.id), tables) : []
+    data._tablesLoaded = true
+    await nextTick()
+    node?.expand?.()
+  } catch (e) {
+    console.error('加载数据源表失败', e)
+    data.children = []
+    data._tablesLoaded = false
+  } finally {
+    data._loadingTables = false
+  }
+}
+
+const preloadDatasourceTables = () => {
+  const sources = (state.dataSourceList || []).filter((ds: any) => !ds?.leaf)
+  if (!sources.length) return
+  void Promise.allSettled(sources.map(ds => loadDatasourceTables(ds)))
+}
+
 const fetchWorkspaceSnapshotById = async (datasetId: string): Promise<WorkspaceSnapshot | null> => {
   const barRes = await barInfoApi(datasetId)
   if (!barRes || !barRes['id']) return null
@@ -420,9 +551,8 @@ const pushDataset = () => {
     useEmitt().emitter.emit('changeCurrentComponent', 'Dataset')
     return
   }
-  const routeName = embeddedStore.getToken && appStore.getIsIframe ? 'dataset-embedded' : 'dataset'
   push({
-    name: routeName,
+    name: 'dataset',
     params: {
       id: nodeInfo.id
     }
@@ -516,9 +646,11 @@ const editeSave = () => {
     graphState: datasetDrag.value?.getGraphState?.(),
     ...resultConfig
   })
-    .then(() => {
+    .then(res => {
+      syncSavedDatasetMeta(res)
       isUpdate = false
       ElMessage.success('保存成功')
+      refreshDatasetPanel(res)
       // 保存成功后，刷新预览数据为联接结果
       setTimeout(() => {
         handleSelectPreviewNode({ id: 'result_output', type: 'result' })
@@ -1114,35 +1246,7 @@ const handleDsTreeNodeClick = async (data: any, node: any) => {
   if (!data.leaf) {
     // 点击数据源文件夹，加载其下的表
     dataSource.value = data.id
-    if (!data._tablesLoaded && !data.children?.length) {
-      data._tablesLoaded = true
-      try {
-        const tables = await getTables({ datasourceId: data.id })
-        if (Array.isArray(tables)) {
-          data.children = tables.map((t: any) => ({
-            ...t,
-            id: `${data.id}_${t.tableName || t.name}`,
-            name: t.tableName || t.name,
-            tableName: t.tableName || t.name,
-            datasourceId: data.id,
-            leaf: true,
-            children: undefined
-          }))
-        } else {
-          data.children = []
-        }
-        // el-tree 在非 lazy 模式下不会自动展开，手动调用 expand
-        await nextTick()
-        node.expand()
-      } catch (e) {
-        console.error('加载数据源表失败', e)
-        data.children = []
-        data._tablesLoaded = false
-      }
-    } else if (data.children?.length) {
-      // 已加载过，直接展开
-      node.expand()
-    }
+    await loadDatasourceTables(data, node)
     return
   }
   // 点击的是数据表，设置当前选中的表
@@ -1471,6 +1575,7 @@ const datasourceTableData = shallowRef([])
 const panelSearchKeyword = ref('')
 const panelDatasetTreeRef = ref()
 const panelDatasourceTreeRef = ref()
+const datasourceExpandedKeys = ref<string[]>([])
 const panelDatasetSortType = ref('time_desc')
 const originDatasetListForPanel = shallowRef<BusiTreeNode[]>([])
 
@@ -1873,6 +1978,8 @@ const getDatasource = () => {
         children: undefined
       }))
     }
+    datasourceExpandedKeys.value = state.dataSourceList.map((ds: any) => String(ds.id))
+    preloadDatasourceTables()
   })
 }
 
@@ -2893,6 +3000,7 @@ const handleClick = () => {
 }
 
 const finish = res => {
+  syncSavedDatasetMeta(res)
   const { id, pid, name } = res
   datasetName.value = name
   nodeInfo = {
@@ -2901,6 +3009,7 @@ const finish = res => {
     name
   }
   allfields.value = res.allFields || []
+  refreshDatasetPanel(res)
   // 保存成功后，等待数据完全保存和字段更新后，刷新预览为联接结果
   setTimeout(() => {
     handleSelectPreviewNode({ id: 'result_output', type: 'result' })
@@ -3143,6 +3252,8 @@ const getDsIconName = data => {
                   class="form-datasource-tree"
                   node-key="id"
                   highlight-current
+                  default-expand-all
+                  :default-expanded-keys="datasourceExpandedKeys"
                   :data="state.dataSourceList"
                   :props="{
                     label: 'name',

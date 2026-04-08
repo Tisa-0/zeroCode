@@ -11,7 +11,7 @@ const props = defineProps({
   title: propTypes.string.def('系统设置')
 })
 const backToMain = () => {
-  push('/workbranch/index')
+  push('/data/dataset')
 }
 const navigateBg = computed(() => appearanceStore.getNavigateBg)
 const navigate = computed(() => appearanceStore.getNavigate)
@@ -31,7 +31,7 @@ const navigate = computed(() => appearanceStore.getNavigate)
         <el-icon>
           <Icon name="icon_left_outlined"></Icon>
         </el-icon>
-        <span class="work">返回工作台</span>
+        <span class="work">返回数据集</span>
       </span>
 
       <AccountOperator />

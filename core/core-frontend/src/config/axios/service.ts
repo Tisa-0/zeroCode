@@ -185,11 +185,11 @@ service.interceptors.response.use(
         })
         if (response.data.code === 80001) {
           localStorage.clear()
-          let queryRedirectPath = '/workbranch/index'
+          let queryRedirectPath = '/data/dataset'
           if (router.currentRoute.value.fullPath) {
             queryRedirectPath = router.currentRoute.value.fullPath as string
           }
-          router.push(`/login?redirect=${queryRedirectPath}`)
+          router.push(queryRedirectPath || '/data/dataset')
         }
       } else if (response?.config?.url.startsWith('/xpackComponent/content')) {
         // 开源版无 xpack 接口，404 为正常，仅作调试提示
@@ -212,6 +212,7 @@ service.interceptors.response.use(
       return Promise.reject(error)
     }
     const header = error.response?.headers as AxiosHeaders
+    const responseData = error.response?.data as { msg?: string } | undefined
     if (
       !error.config.url.startsWith('/xpackComponent/content') &&
       !header.has('DE-FORBIDDEN-FLAG') &&
@@ -219,7 +220,7 @@ service.interceptors.response.use(
     ) {
       ElMessage({
         type: 'error',
-        message: error.response?.data?.msg ? error.response?.data?.msg : error.message,
+        message: responseData?.msg ? responseData.msg : error.message,
         showClose: true
       })
     } else if (error?.config?.url.startsWith('/xpackComponent/content')) {
@@ -234,11 +235,11 @@ service.interceptors.response.use(
       localStorage.clear()
       const flag = header.get('DE-GATEWAY-FLAG')
       localStorage.setItem('DE-GATEWAY-FLAG', flag.toString())
-      let queryRedirectPath = '/workbranch/index'
+      let queryRedirectPath = '/data/dataset'
       if (router.currentRoute.value.fullPath) {
         queryRedirectPath = router.currentRoute.value.fullPath as string
       }
-      router.push(`/login?redirect=${queryRedirectPath}`)
+      router.push(queryRedirectPath || '/data/dataset')
     }
     if (header.has('DE-FORBIDDEN-FLAG')) {
       showMsg('当前用户权限配置已变更，请刷新页面', '-changed-')

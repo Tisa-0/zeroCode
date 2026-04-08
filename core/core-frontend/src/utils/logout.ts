@@ -16,7 +16,7 @@ export const logoutHandler = (justClean?: boolean) => {
   interactiveStore.clear()
   interactiveStore.$reset()
   removeCache()
-  let queryRedirectPath = '/workbranch/index'
+  let queryRedirectPath = '/data/dataset'
   // 如果redirect参数中有值
   if (router.currentRoute.value.fullPath) {
     queryRedirectPath = router.currentRoute.value.fullPath as string
@@ -41,7 +41,7 @@ export const logoutHandler = (justClean?: boolean) => {
   if (wsCache.get('custom_auth_logout_url')) {
     window.location.href = wsCache.get('custom_auth_logout_url')
   }
-  router.push(justClean ? queryRedirectPath : `/login?redirect=${queryRedirectPath}`)
+  router.push(queryRedirectPath || '/data/dataset')
 }
 
 const removeCache = () => {
