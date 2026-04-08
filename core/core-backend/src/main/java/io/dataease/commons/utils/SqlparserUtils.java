@@ -34,10 +34,10 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static io.dataease.chart.manage.ChartDataManage.START_END_SEPARATOR;
 import static org.apache.calcite.sql.SqlKind.*;
 
 public class SqlparserUtils {
+    private static final String START_END_SEPARATOR = "_START_END_SPLIT";
     public static final String regex = "\\$\\{(.*?)\\}";
     private static final String SubstitutedParams = "DATAEASE_PATAMS_BI";
     private static final String SubstitutedSql = " 'DE-BI' = 'DE-BI' ";

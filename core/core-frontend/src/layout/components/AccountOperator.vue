@@ -6,8 +6,6 @@ import { logoutApi } from '@/api/login'
 import { logoutHandler } from '@/utils/logout'
 import { XpackComponent } from '@/components/plugin'
 import { useI18n } from '@/hooks/web/useI18n'
-import { useEmitt } from '@/hooks/web/useEmitt'
-import AboutPage from '@/views/about/index.vue'
 import LangSelector from './LangSelector.vue'
 import router from '@/router'
 import { useCache } from '@/hooks/web/useCache'
@@ -22,12 +20,8 @@ interface LinkItem {
   id: number
   label: string
   link?: string
-  method?: string
 }
-const linkList = ref([{ id: 5, label: t('common.about'), method: 'toAbout' }] as LinkItem[])
-if (!appearanceStore.getShowAbout) {
-  linkList.value.splice(0, 1)
-}
+const linkList = ref([] as LinkItem[])
 
 const inPlatformClient = computed(() => !!wsCache.get('de-platform-client'))
 
@@ -63,15 +57,7 @@ const compare = (property: string) => {
   return (a, b) => a[property] - b[property]
 }
 
-const toAbout = () => {
-  useEmitt().emitter.emit('open-about-dialog')
-}
-
 const executeMethod = (item: LinkItem) => {
-  if (item?.method) {
-    toAbout()
-  }
-
   if (item.link) {
     router.push(item.link)
   }
@@ -174,7 +160,6 @@ if (uid.value === '1') {
     </div>
   </el-popover>
 
-  <AboutPage />
   <XpackComponent jsname="dWNlbnRlci1oYW5kbGVy" @loaded="xpackLinkLoaded" />
 </template>
 

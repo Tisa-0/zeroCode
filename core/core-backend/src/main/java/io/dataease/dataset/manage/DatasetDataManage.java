@@ -8,7 +8,6 @@ import io.dataease.api.dataset.union.DatasetTableInfoDTO;
 import io.dataease.api.dataset.union.UnionDTO;
 import io.dataease.api.permissions.dataset.dto.DataSetRowPermissionsTreeDTO;
 import io.dataease.auth.bo.TokenUserBO;
-import io.dataease.chart.utils.ChartDataBuild;
 import io.dataease.commons.utils.SqlparserUtils;
 import io.dataease.dataset.constant.DatasetTableType;
 import io.dataease.dataset.utils.DatasetUtils;
@@ -52,13 +51,12 @@ import org.springframework.util.CollectionUtils;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static io.dataease.chart.manage.ChartDataManage.START_END_SEPARATOR;
-
 /**
  * @Author Junjun
  */
 @Component
 public class DatasetDataManage {
+    private static final String START_END_SEPARATOR = "_START_END_SPLIT";
     @Resource
     private DatasetSQLManage datasetSQLManage;
     @Resource
@@ -1209,7 +1207,7 @@ public class DatasetDataManage {
                 if (row.length > 0) {
                     for (int j = 0; j < fields.size(); j++) {
                         if (desensitizationList.keySet().contains(fields.get(j).getDataeaseName())) {
-                            obj.put(fields.get(j).getDataeaseName(), ChartDataBuild.desensitizationValue(desensitizationList.get(fields.get(j).getDataeaseName()), String.valueOf(row[j])));
+                            obj.put(fields.get(j).getDataeaseName(), desensitizationValue(desensitizationList.get(fields.get(j).getDataeaseName()), String.valueOf(row[j])));
                         } else {
                             obj.put(ObjectUtils.isNotEmpty(fields.get(j).getDataeaseName()) ?
                                     fields.get(j).getDataeaseName() : fields.get(j).getOriginName(), row[j]);
@@ -1388,7 +1386,7 @@ public class DatasetDataManage {
                 if (!CollectionUtils.isEmpty(tmpData)) {
                     if (desensitizationList.keySet().contains(field.getDataeaseName())) {
                         for (int i = 0; i < tmpData.size(); i++) {
-                            previewData.add(ChartDataBuild.desensitizationValue(desensitizationList.get(field.getDataeaseName()), tmpData.get(i)));
+                            previewData.add(desensitizationValue(desensitizationList.get(field.getDataeaseName()), tmpData.get(i)));
                         }
                     } else {
                         previewData = tmpData;
@@ -1641,7 +1639,7 @@ public class DatasetDataManage {
                     String val = ele[i];
                     DatasetTableFieldDTO field = fields.get(i);
                     if (desensitizationList.containsKey(field.getDataeaseName())) {
-                        String str = ChartDataBuild.desensitizationValue(desensitizationList.get(field.getDataeaseName()), val);
+                        String str = desensitizationValue(desensitizationList.get(field.getDataeaseName()), val);
                         map.put(field.getId() + "", str);
                     } else {
                         map.put(field.getId() + "", val);
@@ -1780,5 +1778,60 @@ public class DatasetDataManage {
         }
         return nodes;
 
+    }
+
+    private String desensitizationValue(ColumnPermissionItem columnPermissionItem, String originStr) {
+        String desensitizationStr = "";
+        if (!columnPermissionItem.getDesensitizationRule().getBuiltInRule().toString().equalsIgnoreCase("custom")) {
+            switch (columnPermissionItem.getDesensitizationRule().getBuiltInRule()) {
+                case CompleteDesensitization:
+                    desensitizationStr = ColumnPermissionItem.CompleteDesensitization;
+                    break;
+                case KeepMiddleThreeCharacters:
+                    if (StringUtils.isEmpty(originStr) || originStr.length() < 4) {
+                        desensitizationStr = ColumnPermissionItem.KeepMiddleThreeCharacters;
+                    } else {
+                        desensitizationStr = "***" + StringUtils.substring(originStr, originStr.length() / 2 - 1, originStr.length() / 2 + 2) + "***";
+                    }
+                    break;
+                case KeepFirstAndLastThreeCharacters:
+                    if (StringUtils.isEmpty(originStr) || originStr.length() < 7) {
+                        desensitizationStr = ColumnPermissionItem.KeepFirstAndLastThreeCharacters;
+                    } else {
+                        desensitizationStr = StringUtils.substring(originStr, 0, 3) + "***" + StringUtils.substring(originStr, originStr.length() - 3, originStr.length());
+                    }
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            switch (columnPermissionItem.getDesensitizationRule().getCustomBuiltInRule()) {
+                case RetainBeforeMAndAfterN:
+                    if (StringUtils.isEmpty(originStr) || originStr.length() < columnPermissionItem.getDesensitizationRule().getM() + columnPermissionItem.getDesensitizationRule().getN()) {
+                        desensitizationStr = String.join("", Collections.nCopies(columnPermissionItem.getDesensitizationRule().getM(), "X")) + "***" + String.join("", Collections.nCopies(columnPermissionItem.getDesensitizationRule().getN(), "X"));
+                    } else {
+                        desensitizationStr = StringUtils.substring(originStr, 0, columnPermissionItem.getDesensitizationRule().getM()) + "***" + StringUtils.substring(originStr, originStr.length() - columnPermissionItem.getDesensitizationRule().getN(), originStr.length());
+                    }
+                    break;
+                case RetainMToN:
+                    if (columnPermissionItem.getDesensitizationRule().getM() > columnPermissionItem.getDesensitizationRule().getN()) {
+                        desensitizationStr = "*** ***";
+                        break;
+                    }
+                    if (StringUtils.isEmpty(originStr) || originStr.length() < columnPermissionItem.getDesensitizationRule().getM()) {
+                        desensitizationStr = "*** ***";
+                        break;
+                    }
+                    if (columnPermissionItem.getDesensitizationRule().getM() == 1) {
+                        desensitizationStr = StringUtils.substring(originStr, columnPermissionItem.getDesensitizationRule().getM() - 1, columnPermissionItem.getDesensitizationRule().getN()) + "***";
+                    } else {
+                        desensitizationStr = "***" + StringUtils.substring(originStr, columnPermissionItem.getDesensitizationRule().getM() - 1, columnPermissionItem.getDesensitizationRule().getN()) + "***";
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        return desensitizationStr;
     }
 }
