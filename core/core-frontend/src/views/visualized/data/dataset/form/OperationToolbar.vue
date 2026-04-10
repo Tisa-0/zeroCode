@@ -45,40 +45,46 @@ const handleDragEnd = () => {
 .operation-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 16px;
+  gap: 6px;
+  padding: 8px 20px;
   background: #fff;
-  border-bottom: 1px solid rgba(31, 35, 41, 0.15);
+  border-bottom: 1px solid rgba(31, 35, 41, 0.08);
   overflow-x: auto;
   flex-shrink: 0;
 
   &::-webkit-scrollbar {
-    height: 4px;
+    height: 3px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(31, 35, 41, 0.12);
+    border-radius: 3px;
   }
 
   .operation-item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border: 1px solid #dee0e3;
-    border-radius: 4px;
+    gap: 5px;
+    padding: 5px 14px;
+    border: 1px solid #e4e7ed;
+    border-radius: 16px;
     cursor: grab;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 13px;
     color: #1f2329;
-    background: #f5f6f7;
+    background: #f9fafb;
     user-select: none;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
 
     &:hover {
-      border-color: var(--ed-color-primary);
-      color: var(--ed-color-primary);
-      background: rgba(51, 112, 255, 0.06);
+      border-color: var(--ed-color-primary, #3370ff);
+      color: var(--ed-color-primary, #3370ff);
+      background: rgba(51, 112, 255, 0.05);
+      box-shadow: 0 1px 4px rgba(51, 112, 255, 0.12);
     }
 
     &:active {
       cursor: grabbing;
+      transform: scale(0.97);
     }
 
     .op-label {

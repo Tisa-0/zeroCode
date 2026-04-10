@@ -1,4 +1,4 @@
-<script lang="tsx" setup>
+﻿<script lang="tsx" setup>
 import {
   ref,
   toRaw,
@@ -29,7 +29,15 @@ import UnionEdit from './UnionEdit.vue'
 import type { FormInstance } from 'element-plus-secondary'
 import type { BusiTreeNode } from '@/models/tree/TreeNode'
 import CreatDsGroup from './CreatDsGroup.vue'
-import { guid, getFieldName, timeTypes, type DataSource, normalizeField, fieldNameShort } from './util'
+import {
+  guid,
+  getFieldName,
+  timeTypes,
+  type DataSource,
+  normalizeField,
+  fieldNameShort,
+  operationList
+} from './util'
 import { fieldType } from '@/utils/attr'
 import { cancelMap } from '@/config/axios/service'
 import { useEmbedded } from '@/store/modules/embedded'
@@ -44,7 +52,8 @@ import {
   barInfoApi,
   getTableField,
   multFieldValuesForPermissions,
-  getDatasetTree
+  getDatasetTree,
+  copilotChat
 } from '@/api/dataset'
 import type { Table } from '@/api/dataset'
 import DatasetUnion from './DatasetUnion.vue'
@@ -117,8 +126,29 @@ const offsetY = ref(0)
 const showLeft = ref(true)
 const maskShow = ref(false)
 const loading = ref(false)
+const showAiPanel = ref(false)
+const aiInputText = ref('')
+const aiMessages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+const aiLoading = ref(false)
+const aiPanelBody = shallowRef<HTMLElement>()
 const updateCustomTime = ref(false)
 const editerName = shallowRef()
+
+const scrollAiPanelToBottom = () => {
+  nextTick(() => {
+    const el = aiPanelBody.value
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  })
+}
+
+watch(
+  () => [aiMessages.value.length, aiLoading.value],
+  () => {
+    scrollAiPanelToBottom()
+  }
+)
 const currentField = ref({
   dateFormat: '',
   id: '',
@@ -351,7 +381,7 @@ const loadDatasourceTables = async (data: any, node?: any) => {
     await nextTick()
     node?.expand?.()
   } catch (e) {
-    console.error('加载数据源表失败', e)
+    console.error('鍔犺浇鏁版嵁婧愯〃澶辫触', e)
     data.children = []
     data._tablesLoaded = false
   } finally {
@@ -492,7 +522,7 @@ const fieldRules = {
 const sqlNode = reactive<Table>({
   datasourceId: '',
   name: '',
-  tableName: '自定义SQL',
+  tableName: '鑷畾涔塖QL',
   type: 'sql'
 })
 
@@ -649,9 +679,9 @@ const editeSave = () => {
     .then(res => {
       syncSavedDatasetMeta(res)
       isUpdate = false
-      ElMessage.success('保存成功')
+      ElMessage.success('淇濆瓨鎴愬姛')
       refreshDatasetPanel(res)
-      // 保存成功后，刷新预览数据为联接结果
+      // 淇濆瓨鎴愬姛鍚庯紝鍒锋柊棰勮鏁版嵁涓鸿仈鎺ョ粨鏋?
       setTimeout(() => {
         handleSelectPreviewNode({ id: 'result_output', type: 'result' })
       }, 500)
@@ -818,7 +848,7 @@ const addCalcField = groupType => {
   })
 }
 
-/** 支持值分组的维度类型：布尔、字符串、字符、时间戳、日期或时间 → deType 0(文本)、1(时间)、5(地理位置) */
+/** 鏀寔鍊煎垎缁勭殑缁村害绫诲瀷锛氬竷灏斻€佸瓧绗︿覆銆佸瓧绗︺€佹椂闂存埑銆佹棩鏈熸垨鏃堕棿 鈫?deType 0(鏂囨湰)銆?(鏃堕棿)銆?(鍦扮悊浣嶇疆) */
 const GROUPABLE_DIMENSION_TYPES = [0, 1, 5]
 
 const getDistinctValuesForField = (field): string[] => {
@@ -832,7 +862,7 @@ const getDistinctValuesForField = (field): string[] => {
   const firstRowKeys = Object.keys(firstRow)
   console.log('>>> getDistinctValuesForField - first row keys:', firstRowKeys)
   
-  // 尝试多个可能的 key
+  // 灏濊瘯澶氫釜鍙兘鐨?key
   const possibleKeys = [field?.dataeaseName, field?.originName, String(field?.id)]
   console.log('>>> getDistinctValuesForField - trying keys:', possibleKeys)
   
@@ -853,56 +883,56 @@ const getDistinctValuesForField = (field): string[] => {
   return []
 }
 
-/** 从 API 获取字段的去重值列表 */
+/** 浠?API 鑾峰彇瀛楁鐨勫幓閲嶅€煎垪琛?*/
 const fetchFieldValuesFromApi = async (field): Promise<string[]> => {
   try {
-    // 检查字段的所有属性
+    // 妫€鏌ュ瓧娈电殑鎵€鏈夊睘鎬?
     console.log('>>> fetchFieldValuesFromApi - field keys:', Object.keys(field))
     console.log('>>> fetchFieldValuesFromApi - field:', JSON.stringify(field))
     
-    // 尝试多个可能的 ID 字段
-    // 后端改为接受 String 类型，避免 JavaScript 大数字精度丢失
+    // 灏濊瘯澶氫釜鍙兘鐨?ID 瀛楁
+    // 鍚庣鏀逛负鎺ュ彈 String 绫诲瀷锛岄伩鍏?JavaScript 澶ф暟瀛楃簿搴︿涪澶?
     const fieldId = field.fieldId || field.id || field.dataeaseFieldId
     
     console.log('>>> fetchFieldValuesForPermissions - fieldId:', fieldId, 'type:', typeof fieldId)
     
-    // 发送字符串格式给后端，避免大数字精度丢失
+    // 鍙戦€佸瓧绗︿覆鏍煎紡缁欏悗绔紝閬垮厤澶ф暟瀛楃簿搴︿涪澶?
     const requestData = { fieldIds: [String(fieldId)] }
-    console.log('>>> 发送给API的数据:', JSON.stringify(requestData))
+    console.log('>>> 鍙戦€佺粰API鐨勬暟鎹?', JSON.stringify(requestData))
     
-    // 尝试 multFieldValuesForPermissions
+    // 灏濊瘯 multFieldValuesForPermissions
     const res1 = await multFieldValuesForPermissions(requestData)
     console.log('>>> fetchFieldValuesFromApi - response status:', res1?.code, 'data:', res1?.data, 'msg:', res1?.msg)
     
-    // 检查多种可能的响应结构
+    // 妫€鏌ュ绉嶅彲鑳界殑鍝嶅簲缁撴瀯
     if (res1?.data && Array.isArray(res1.data) && res1.data.length > 0) {
       return res1.data.filter((v: any) => v != null && v !== '')
     }
-    // 直接返回数组的情况
+    // 鐩存帴杩斿洖鏁扮粍鐨勬儏鍐?
     if (Array.isArray(res1) && res1.length > 0) {
       return res1.filter((v: any) => v != null && v !== '')
     }
     
-    // 如果响应有错误消息
+    // 濡傛灉鍝嶅簲鏈夐敊璇秷鎭?
     if (res1?.msg) {
-      console.warn('>>> API 返回消息:', res1.msg)
+      console.warn('>>> API 杩斿洖娑堟伅:', res1.msg)
       ElMessage.warning(res1.msg)
     }
     
     return []
   } catch (e: any) {
-    console.error('>>> 获取字段值失败 - error:', e)
-    // e 是字符串（后端返回的错误消息）
+    console.error('>>> 鑾峰彇瀛楁鍊煎け璐?- error:', e)
+    // e 鏄瓧绗︿覆锛堝悗绔繑鍥炵殑閿欒娑堟伅锛?
     ElMessage.warning(e?.toString() || '获取字段值失败')
     return []
   }
 }
 
-/** 从批量管理或数据预览指定字段打开「新建分组」弹窗（值分组模式） */
+/** 浠庢壒閲忕鐞嗘垨鏁版嵁棰勮鎸囧畾瀛楁鎵撳紑銆屾柊寤哄垎缁勩€嶅脊绐楋紙鍊煎垎缁勬ā寮忥級 */
 const addGroupFieldWithField = async field => {
   if (!field || field.groupType !== 'd') return
   if (!GROUPABLE_DIMENSION_TYPES.includes(field.deType)) {
-    ElMessage.warning('仅支持对文本、时间、地理位置类型的维度字段新建分组')
+    ElMessage.warning('浠呮敮鎸佸鏂囨湰銆佹椂闂淬€佸湴鐞嗕綅缃被鍨嬬殑缁村害瀛楁鏂板缓鍒嗙粍')
     return
   }
 
@@ -912,7 +942,7 @@ const addGroupFieldWithField = async field => {
     console.log('>>> addGroupFieldWithField - tableData first row keys:', Object.keys(tableData.value[0]))
   }
   
-  // 先从预览数据获取值，如果没有则调用 API
+  // 鍏堜粠棰勮鏁版嵁鑾峰彇鍊硷紝濡傛灉娌℃湁鍒欒皟鐢?API
   let valueList = getDistinctValuesForField(field)
   console.log('>>> addGroupFieldWithField - from tableData:', valueList)
   
@@ -923,7 +953,7 @@ const addGroupFieldWithField = async field => {
   }
 
   if (!valueList || !valueList.length) {
-    ElMessage.warning('该字段没有可用的值数据')
+    ElMessage.warning('No available field values')
     return
   }
 
@@ -938,7 +968,7 @@ const addGroupFieldWithField = async field => {
   })
 }
 
-/** 根据预览列找到对应字段，判断是否可对该列使用「新建分组」 */
+/** 鏍规嵁棰勮鍒楁壘鍒板搴斿瓧娈碉紝鍒ゆ柇鏄惁鍙璇ュ垪浣跨敤銆屾柊寤哄垎缁勩€?*/
 const getFieldForPreviewColumn = column => {
   if (!column?.dataKey) return null
   return allfields.value.find(
@@ -966,19 +996,19 @@ const onPreviewColumnHeaderClick = column => {
   if (field) addGroupFieldWithField(field)
 }
 
-/** 点击工具栏「新建分组字段」：必须先选中一个可分组维度字段，弹窗内容与参考图一致（原始字段、名称绑定、字段值在输入搜索文字下方） */
+/** 鐐瑰嚮宸ュ叿鏍忋€屾柊寤哄垎缁勫瓧娈点€嶏細蹇呴』鍏堥€変腑涓€涓彲鍒嗙粍缁村害瀛楁锛屽脊绐楀唴瀹逛笌鍙傝€冨浘涓€鑷达紙鍘熷瀛楁銆佸悕绉扮粦瀹氥€佸瓧娈靛€煎湪杈撳叆鎼滅储鏂囧瓧涓嬫柟锛?*/
 const openGroupFieldDialog = () => {
   console.log('>>> openGroupFieldDialog called')
   const field = selectedGroupableFieldForButton.value
   console.log('>>> openGroupFieldDialog - field from computed:', field)
   if (!field) {
-    ElMessage.warning('请先在批量管理中选中一个维度字段（文本、时间或地理位置类型）')
+    ElMessage.warning('Please select a dimension field first')
     return
   }
   addGroupFieldWithField(field)
 }
 
-/** 处理预览表头下拉菜单命令 */
+/** 澶勭悊棰勮琛ㄥご涓嬫媺鑿滃崟鍛戒护 */
 const onPreviewColumnCommand = (column, command) => {
   console.log('>>> onPreviewColumnCommand - column:', JSON.stringify(column), 'command:', command)
   const field = getFieldForPreviewColumn(column)
@@ -1055,7 +1085,7 @@ const confirmEditCalc = () => {
     if (val) {
       calcEdit.value.setFieldForm()
       if (!calcEdit.value.fieldForm.originName.trim()) {
-        ElMessage.error('表达式不能为空!')
+        ElMessage.error('琛ㄨ揪寮忎笉鑳戒负绌?')
         return
       }
       const obj = cloneDeep(calcEdit.value.fieldForm)
@@ -1093,13 +1123,13 @@ const confirmGroupField = async () => {
   }
   editGroupField.value = false
   
-  // 保存分组字段后，刷新数据预览
+  // 淇濆瓨鍒嗙粍瀛楁鍚庯紝鍒锋柊鏁版嵁棰勮
   nextTick(() => {
     datasetPreview()
   })
 }
 
-/** 获取字段的缺失值（null和空字符串）列表 */
+/** 鑾峰彇瀛楁鐨勭己澶卞€硷紙null鍜岀┖瀛楃涓诧級鍒楄〃 */
 const getNullValuesForField = (field): string[] => {
   if (!Array.isArray(tableData.value) || !tableData.value.length) {
     return []
@@ -1108,7 +1138,7 @@ const getNullValuesForField = (field): string[] => {
   const firstRow = tableData.value[0]
   const firstRowKeys = Object.keys(firstRow)
   
-  // 尝试多个可能的 key
+  // 灏濊瘯澶氫釜鍙兘鐨?key
   const possibleKeys = [field?.dataeaseName, field?.originName, String(field?.id)]
   
   for (const key of possibleKeys) {
@@ -1116,7 +1146,7 @@ const getNullValuesForField = (field): string[] => {
       const nullSet = new Set<string>()
       tableData.value.forEach(row => {
         const v = row[key]
-        // 收集 null、undefined、空字符串、以及字符串 "null"、"undefined"
+        // 鏀堕泦 null銆乽ndefined銆佺┖瀛楃涓层€佷互鍙婂瓧绗︿覆 "null"銆?undefined"
         if (v == null || v === '' || v === 'null' || v === 'NULL' || v === 'undefined') {
           nullSet.add(String(v ?? ''))
         }
@@ -1128,23 +1158,23 @@ const getNullValuesForField = (field): string[] => {
   return []
 }
 
-/** 从批量管理或数据预览指定字段打开「缺失值填充」弹窗 */
+/** 浠庢壒閲忕鐞嗘垨鏁版嵁棰勮鎸囧畾瀛楁鎵撳紑銆岀己澶卞€煎～鍏呫€嶅脊绐?*/
 const addFillNullFieldWithField = async field => {
   if (!field) return
 
-  // 获取该字段的缺失值列表
+  // 鑾峰彇璇ュ瓧娈电殑缂哄け鍊煎垪琛?
   let nullValueList = getNullValuesForField(field)
   
   if (!nullValueList || !nullValueList.length) {
-    // 如果没有从预览数据获取到，尝试调用API
+    // 濡傛灉娌℃湁浠庨瑙堟暟鎹幏鍙栧埌锛屽皾璇曡皟鐢ˋPI
     try {
       const values = await fetchFieldValuesFromApi(field)
       if (values && values.length) {
-        // 筛选出缺失值
+        // 绛涢€夊嚭缂哄け鍊?
         nullValueList = values.filter(v => v == null || v === '' || v === 'null' || v === 'NULL' || v === 'undefined')
       }
     } catch (e) {
-      console.error('获取字段缺失值失败', e)
+      console.error('Failed to fetch null-like field values', e)
     }
   }
 
@@ -1169,7 +1199,7 @@ const confirmFillNullField = async () => {
   
   const { fillStrategy, customValue, selectedNullValues, sourceField } = result
   
-  // 创建填充字段
+  // 鍒涘缓濉厖瀛楁
   const obj = {
     id: result.id || guid(),
     name: result.name,
@@ -1177,12 +1207,12 @@ const confirmFillNullField = async () => {
     groupType: sourceField.groupType || 'd',
     type: sourceField.type || 'VARCHAR',
     deType: sourceField.deType || 0,
-    extField: 2, // 计算字段
+    extField: 2, // 璁＄畻瀛楁
     checked: true,
     dateFormat: '',
     dateFormatType: '',
     deTypeArr: [sourceField.deType || 0],
-    // 存储填充配置信息
+    // 瀛樺偍濉厖閰嶇疆淇℃伅
     fillConfig: {
       sourceFieldId: sourceField.id,
       sourceFieldName: sourceField.name,
@@ -1200,7 +1230,7 @@ const confirmFillNullField = async () => {
   }
   editFillNullField.value = false
   
-  // 保存填充字段后，刷新数据预览
+  // 淇濆瓨濉厖瀛楁鍚庯紝鍒锋柊鏁版嵁棰勮
   nextTick(() => {
     datasetPreview()
   })
@@ -1241,15 +1271,15 @@ const dsChange = (val: string) => {
     })
 }
 
-// 处理数据源树节点点击
+// 澶勭悊鏁版嵁婧愭爲鑺傜偣鐐瑰嚮
 const handleDsTreeNodeClick = async (data: any, node: any) => {
   if (!data.leaf) {
-    // 点击数据源文件夹，加载其下的表
+    // 鐐瑰嚮鏁版嵁婧愭枃浠跺す锛屽姞杞藉叾涓嬬殑琛?
     dataSource.value = data.id
     await loadDatasourceTables(data, node)
     return
   }
-  // 点击的是数据表，设置当前选中的表
+  // 鐐瑰嚮鐨勬槸鏁版嵁琛紝璁剧疆褰撳墠閫変腑鐨勮〃
   const parentDsId = data.datasourceId || data.pid
   dataSource.value = parentDsId
   const tableInfo = {
@@ -1317,10 +1347,10 @@ const initEdite = async () => {
       const msg = err?.message || err?.data?.message || String(err)
       if (/NullPointerException|tableInfoDTO|getTable/.test(msg)) {
         ElMessage.error(
-          '加载联合数据集详情失败：节点表信息不完整。请检查后端服务日志，并在实现 datasetTree/details 的代码中对 tableInfoDTO 做空值判断。'
+          'Failed to load dataset details: incomplete node table info'
         )
       } else {
-        ElMessage.error('加载数据集详情失败：' + (msg || '未知错误'))
+        ElMessage.error('鍔犺浇鏁版嵁闆嗚鎯呭け璐ワ細' + (msg || '鏈煡閿欒'))
       }
     })
     .finally(() => {
@@ -1348,13 +1378,13 @@ const handleEditNode = node => {
       nodeConfigDrawer.value?.initConfig(node)
     })
   } else {
-    // 非“操作节点”或联接节点：尝试通过画布组件打开联接编辑框
-    // 优先让画布根据当前节点 id 和连线关系决定参与联接的两张表
+    // 闈炩€滄搷浣滆妭鐐光€濇垨鑱旀帴鑺傜偣锛氬皾璇曢€氳繃鐢诲竷缁勪欢鎵撳紑鑱旀帴缂栬緫妗?
+    // 浼樺厛璁╃敾甯冩牴鎹綋鍓嶈妭鐐?id 鍜岃繛绾垮叧绯诲喅瀹氬弬涓庤仈鎺ョ殑涓ゅ紶琛?
     datasetDrag.value?.openJoinEditorByNodeId?.(node.id)
   }
 }
 
-// 双击黄色数据集节点：在当前编辑器中打开内部工作区 tab
+// 鍙屽嚮榛勮壊鏁版嵁闆嗚妭鐐癸細鍦ㄥ綋鍓嶇紪杈戝櫒涓墦寮€鍐呴儴宸ヤ綔鍖?tab
 const handleEditDatasetNode = async node => {
   if (node.type !== 'dataset') return
   const datasetId = String((node as any).datasetId || node.id || '')
@@ -1460,8 +1490,8 @@ const syncDatasetReferenceNode = async (node: any, datasetId: string, options?: 
       handleSelectPreviewNode(node)
     }
   } catch (error) {
-    console.error('加载数据集字段失败:', error)
-    ElMessage.error('加载数据集字段失败')
+    console.error('鍔犺浇鏁版嵁闆嗗瓧娈靛け璐?', error)
+    ElMessage.error('Failed to load dataset fields')
   } finally {
     if (datasetNodeLoading.value) {
       datasetNodeLoading.value = false
@@ -1488,7 +1518,7 @@ const handleCopyNode = node => {
   const copied = cloneDeep(node)
   copied.id = guid()
   copied.tableName = node.tableName + '_copy'
-  ElMessage.success('节点已复制')
+  ElMessage.success('Node copied')
 }
 
 const handleToolbarDragStart = e => {
@@ -1505,7 +1535,7 @@ const columns = shallowRef([])
 const tableData = shallowRef([])
 const quota = computed(() => {
   const fields = allfields.value
-  // 仅在选中具体表节点时才按 datasetTableId 过滤；操作节点显示全部（避免误过滤为空）
+  // 浠呭湪閫変腑鍏蜂綋琛ㄨ妭鐐规椂鎵嶆寜 datasetTableId 杩囨护锛涙搷浣滆妭鐐规樉绀哄叏閮紙閬垮厤璇繃婊や负绌猴級
   if (
     selectedPreviewNodeId.value &&
     selectedPreviewNodeId.value !== 'result_output' &&
@@ -1520,7 +1550,7 @@ const quota = computed(() => {
 
 const dimensions = computed(() => {
   const fields = allfields.value
-  // 仅在选中具体表节点时才按 datasetTableId 过滤；操作节点显示全部（避免误过滤为空）
+  // 浠呭湪閫変腑鍏蜂綋琛ㄨ妭鐐规椂鎵嶆寜 datasetTableId 杩囨护锛涙搷浣滆妭鐐规樉绀哄叏閮紙閬垮厤璇繃婊や负绌猴級
   if (
     selectedPreviewNodeId.value &&
     selectedPreviewNodeId.value !== 'result_output' &&
@@ -1565,13 +1595,13 @@ const state = reactive({
   editArr: [],
   dataSourceList: [],
   fieldCollapse: ['dimension', 'quota'],
-  datasetList: [] as any[], // 已创建的数据集列表
+  datasetList: [] as any[], // 宸插垱寤虹殑鏁版嵁闆嗗垪琛?
   datasetLoading: false
 })
 
 const datasourceTableData = shallowRef([])
 
-/** 左侧数据集树：与数据集列表页一致的搜索、排序 */
+/** 宸︿晶鏁版嵁闆嗘爲锛氫笌鏁版嵁闆嗗垪琛ㄩ〉涓€鑷寸殑鎼滅储銆佹帓搴?*/
 const panelSearchKeyword = ref('')
 const panelDatasetTreeRef = ref()
 const panelDatasourceTreeRef = ref()
@@ -1582,8 +1612,8 @@ const originDatasetListForPanel = shallowRef<BusiTreeNode[]>([])
 const datasetPanelSortList = [
   { name: '按创建时间升序', value: 'time_asc' },
   { name: '按创建时间降序', value: 'time_desc', divided: true },
-  { name: '按照名称升序', value: 'name_asc' },
-  { name: '按照名称降序', value: 'name_desc' }
+  { name: '鎸夌収鍚嶇О鍗囧簭', value: 'name_asc' },
+  { name: '鎸夌収鍚嶇О闄嶅簭', value: 'name_desc' }
 ]
 
 const datasetPanelSortTip = computed(
@@ -1645,9 +1675,9 @@ const getIconName = (type: number) => {
 
 const allfields = ref([])
 
-/** 当前选中的画布节点，用于构造按节点/子树预览的 union */
+/** 褰撳墠閫変腑鐨勭敾甯冭妭鐐癸紝鐢ㄤ簬鏋勯€犳寜鑺傜偣/瀛愭爲棰勮鐨?union */
 const selectedPreviewNode = ref<any | null>(null)
-/** 当前选中的画布节点 id，用于预览区只显示该节点对应表的字段 */
+/** 褰撳墠閫変腑鐨勭敾甯冭妭鐐?id锛岀敤浜庨瑙堝尯鍙樉绀鸿鑺傜偣瀵瑰簲琛ㄧ殑瀛楁 */
 const selectedPreviewNodeId = ref('')
 
 provide('allfields', allfields)
@@ -1747,7 +1777,7 @@ const confirmEditUnion = () => {
   })
 
   if (unionFieldsLost) {
-    ElMessage.error('关联字段不能为空!')
+    ElMessage.error('鍏宠仈瀛楁涓嶈兘涓虹┖!')
     return
   }
 
@@ -1778,10 +1808,12 @@ const confirmEditUnion = () => {
     }, [])
 
     ElMessageBox.confirm(
-      `字段${allfields.value
-        .filter(ele => [...new Set(idArr)].includes(ele.id) && ele.extField !== 2)
-        .map(ele => ele.name)
-        .join(',')}未被选择，其相关的新建字段将被删除，是否继续？`,
+      '字段' +
+        allfields.value
+          .filter(ele => [...new Set(idArr)].includes(ele.id) && ele.extField !== 2)
+          .map(ele => ele.name)
+          .join(',') +
+        '未被选择，其相关的新建字段将被删除，是否继续？',
       {
         confirmButtonText: t('dataset.confirm'),
         cancelButtonText: t('common.cancel'),
@@ -1797,7 +1829,7 @@ const confirmEditUnion = () => {
             editUnion.value = false
             addComplete()
             datasetDrag.value.setChangeStatus(to, from)
-            // 编辑联接关系后，自动刷新预览
+            // 缂栬緫鑱旀帴鍏崇郴鍚庯紝鑷姩鍒锋柊棰勮
             updateAllfields()
           }
         }
@@ -1811,20 +1843,20 @@ const confirmEditUnion = () => {
   editUnion.value = false
   addComplete()
   datasetDrag.value.setChangeStatus(to, from)
-  // 编辑联接关系后，自动刷新预览
+  // 缂栬緫鑱旀帴鍏崇郴鍚庯紝鑷姩鍒锋柊棰勮
   updateAllfields()
 }
 
 const updateAllfields = () => {
   setFieldAll()
   nextTick(() => {
-    // 字段列表更新完成后，根据最近新增的节点或选中的节点自动触发预览，
-    // 确保拖入节点时也会像点击节点一样调用预览接口。
+    // 瀛楁鍒楄〃鏇存柊瀹屾垚鍚庯紝鏍规嵁鏈€杩戞柊澧炵殑鑺傜偣鎴栭€変腑鐨勮妭鐐硅嚜鍔ㄨЕ鍙戦瑙堬紝
+    // 纭繚鎷栧叆鑺傜偣鏃朵篃浼氬儚鐐瑰嚮鑺傜偣涓€鏍疯皟鐢ㄩ瑙堟帴鍙ｃ€?
     const lastAdded = datasetDrag.value?.getLastAddedNode?.()
     if (lastAdded) {
       handleSelectPreviewNode({ id: lastAdded.id, type: lastAdded.type })
     } else if (allfields.value.length > 0) {
-      // 有字段时，根据选中状态决定预览范围
+      // 鏈夊瓧娈垫椂锛屾牴鎹€変腑鐘舵€佸喅瀹氶瑙堣寖鍥?
       if (selectedPreviewNode.value && selectedPreviewNode.value.type === 'result') {
         handleSelectPreviewNode({ id: 'result_output', type: 'result' })
       } else if (
@@ -1839,7 +1871,7 @@ const updateAllfields = () => {
         datasetPreview()
       }
     } else {
-      // 没有字段时仍然尝试预览（可能是空结果集）
+      // 娌℃湁瀛楁鏃朵粛鐒跺皾璇曢瑙堬紙鍙兘鏄┖缁撴灉闆嗭級
       datasetPreview()
     }
   })
@@ -1955,7 +1987,7 @@ onBeforeUnmount(() => {
   try {
     window.removeEventListener('resize', handleResize)
   } catch (_) {
-    // 避免在实例已销毁时触发生命周期导致的 Vue warn
+    // 閬垮厤鍦ㄥ疄渚嬪凡閿€姣佹椂瑙﹀彂鐢熷懡鍛ㄦ湡瀵艰嚧鐨?Vue warn
   }
 })
 const getSqlResultHeight = () => {
@@ -1964,7 +1996,7 @@ const getSqlResultHeight = () => {
 const getDatasource = () => {
   getDatasourceList().then(res => {
     const _list = (res as unknown as DataSource[]) || []
-    // 根节点 id === '0' 的情况，直接取 children
+    // 鏍硅妭鐐?id === '0' 鐨勬儏鍐碉紝鐩存帴鍙?children
     if (_list.length > 0 && _list[0].id === '0') {
       state.dataSourceList = (_list[0].children || []).map((ds: any) => ({
         ...ds,
@@ -1983,7 +2015,7 @@ const getDatasource = () => {
   })
 }
 
-// 获取已创建的数据集列表（用于拖拽到画布作为引用）
+// 鑾峰彇宸插垱寤虹殑鏁版嵁闆嗗垪琛紙鐢ㄤ簬鎷栨嫿鍒扮敾甯冧綔涓哄紩鐢級
 const getDatasetList = () => {
   state.datasetLoading = true
   interactiveStore.setInteractive({ busiFlag: 'dataset' } as any)
@@ -2002,11 +2034,11 @@ const getDatasetList = () => {
     })
 }
 
-/** 与数据集列表页一致：叶子节点为可引用的数据集 */
+/** 涓庢暟鎹泦鍒楄〃椤典竴鑷达細鍙跺瓙鑺傜偣涓哄彲寮曠敤鐨勬暟鎹泦 */
 const isDatasetTreeLeaf = (data: any) =>
   data?.leaf === true || data?.nodeType === 'dataset'
 
-// 处理数据集拖拽开始
+// 澶勭悊鏁版嵁闆嗘嫋鎷藉紑濮?
 const datasetDragStart = (e: DragEvent, dataset: any) => {
   if (!isDatasetTreeLeaf(dataset)) return
   offsetX.value = e.offsetX
@@ -2046,9 +2078,507 @@ const getDatasourceIdFromUnion = (unionList: any[] = []): string => {
   return ''
 }
 
-// 处理加载数据集引用节点字段
+// 澶勭悊鍔犺浇鏁版嵁闆嗗紩鐢ㄨ妭鐐瑰瓧娈?
 const handleLoadDatasetFields = async ({ node, datasetId }: { node: any, datasetId: string }) => {
   await syncDatasetReferenceNode(node, datasetId, { preview: true })
+}
+
+const normalizeAiText = (value: any) => String(value || '').trim().toLowerCase()
+const assistantAllowedOperationTypes = new Set((operationList || []).map((item: any) => String(item?.key || '')))
+const ASSISTANT_NODE_WIDTH = 180
+const ASSISTANT_NODE_HEIGHT = 40
+const ASSISTANT_NODE_GAP_Y = 120
+
+const normalizeAssistantJoinType = (joinType: any) => {
+  const raw = normalizeAiText(joinType).replace(/[_-]/g, ' ')
+  if (!raw) return 'left'
+  if (raw.includes('left')) return 'left'
+  if (raw.includes('right')) return 'right'
+  if (raw.includes('inner')) return 'inner'
+  if (raw.includes('full')) return 'full'
+  return 'left'
+}
+
+const normalizeAssistantOperationType = (operationType: any) => {
+  const raw = normalizeAiText(operationType)
+  if (!raw) return ''
+  if (raw === 'join' || raw.includes('join')) return 'join'
+  if (raw === 'union' || raw.includes('union')) return 'union'
+  if (raw === 'mirror' || raw.includes('mirror')) return 'mirror'
+  return raw
+}
+
+const isAssistantOperationAllowed = (operationType: string) => {
+  return assistantAllowedOperationTypes.has(String(operationType || ''))
+}
+
+const buildAssistantNodePositionMap = (planNodes: any[]) => {
+  const map: Record<string, { x: number; y: number }> = {}
+  const graphNodes = datasetDrag.value?.getGraphState?.()?.nodes || []
+  const occupied: Array<{ x: number; y: number }> = graphNodes
+    .map((node: any) => ({
+      x: Number(node?.x ?? 0),
+      y: Number(node?.y ?? 0)
+    }))
+    .filter((pos: any) => Number.isFinite(pos.x) && Number.isFinite(pos.y))
+
+  const maxY = occupied.length ? Math.max(...occupied.map(pos => pos.y)) : 0
+  const baseY = Math.max(80, maxY + 120)
+  const counters: Record<string, number> = {
+    source: 0,
+    operation: 0,
+    result: 0
+  }
+  const columnX = {
+    source: 100,
+    operation: 420,
+    result: 760
+  }
+
+  const intersects = (x: number, y: number) =>
+    occupied.some(pos => {
+      const overlapX = Math.abs(pos.x - x) < ASSISTANT_NODE_WIDTH + 28
+      const overlapY = Math.abs(pos.y - y) < ASSISTANT_NODE_HEIGHT + 24
+      return overlapX && overlapY
+    })
+
+  const allocatePosition = (kind: 'source' | 'operation' | 'result') => {
+    const x = columnX[kind]
+    let y = baseY + counters[kind] * ASSISTANT_NODE_GAP_Y
+    while (intersects(x, y)) {
+      counters[kind] += 1
+      y = baseY + counters[kind] * ASSISTANT_NODE_GAP_Y
+    }
+    counters[kind] += 1
+    occupied.push({ x, y })
+    return { x, y }
+  }
+
+  ;(planNodes || []).forEach((node: any) => {
+    const key = String(node?.key || '')
+    if (!key) return
+    const nodeType = String(node?.nodeType || '')
+    if (nodeType === 'result') {
+      map[key] = allocatePosition('result')
+      return
+    }
+    if (nodeType === 'operation') {
+      map[key] = allocatePosition('operation')
+      return
+    }
+    map[key] = allocatePosition('source')
+  })
+
+  return map
+}
+
+const enrichAssistantJoinPlan = (plan: any) => {
+  const nodes = Array.isArray(plan?.nodes) ? cloneDeep(plan.nodes) : []
+  const links = Array.isArray(plan?.links) ? cloneDeep(plan.links) : []
+  const joinConfig = plan?.joinConfig
+  const leftKey = String(joinConfig?.leftNode || '')
+  const rightKey = String(joinConfig?.rightNode || '')
+  if (!leftKey || !rightKey) {
+    return { nodes, links }
+  }
+
+  let joinNode = nodes.find(
+    (n: any) =>
+      String(n?.nodeType || '') === 'operation' &&
+      normalizeAssistantOperationType(n?.operationType) === 'join'
+  )
+  let joinKey = String(joinNode?.key || 'assistant_join')
+  if (!joinNode) {
+    joinNode = {
+      key: joinKey,
+      nodeType: 'operation',
+      operationType: 'join',
+      name: 'Join'
+    }
+    nodes.push(joinNode)
+  } else {
+    joinNode.operationType = 'join'
+    joinNode.name = joinNode.name || 'Join'
+    if (!joinNode.key) {
+      joinNode.key = joinKey
+    } else {
+      joinKey = String(joinNode.key)
+    }
+  }
+
+  const resultNode = nodes.find((n: any) => String(n?.nodeType || '') === 'result')
+  const resultKey = String(resultNode?.key || 'result_output')
+  const isResultKey = (key: string) => key === resultKey || key === 'result_output'
+  const dedup: Set<string> = new Set()
+  const nextLinks: Array<{ from: string; to: string }> = []
+  const pushLink = (from: string, to: string) => {
+    if (!from || !to) return
+    const id = from + '__' + to
+    if (dedup.has(id)) return
+    dedup.add(id)
+    nextLinks.push({ from, to })
+  }
+
+  for (const link of links) {
+    const from = String(link?.from || '')
+    const to = String(link?.to || '')
+    if (!from || !to) continue
+    if ((from === leftKey || from === rightKey) && isResultKey(to)) continue
+    if ((from === leftKey || from === rightKey) && to === joinKey) continue
+    if (from === joinKey && isResultKey(to)) continue
+    pushLink(from, to)
+  }
+
+  pushLink(leftKey, joinKey)
+  pushLink(rightKey, joinKey)
+  pushLink(joinKey, resultKey)
+
+  return { nodes, links: nextLinks }
+}
+
+const flattenDatasetTreeLeaves = (list: any[] = []) => {
+  const result: any[] = []
+  const walk = (items: any[] = []) => {
+    items.forEach(item => {
+      if (!item) return
+      if (isDatasetTreeLeaf(item)) {
+        result.push(item)
+        return
+      }
+      if (Array.isArray(item.children) && item.children.length) {
+        walk(item.children)
+      }
+    })
+  }
+  walk(list)
+  return result
+}
+
+const flattenDatasourceTables = (list: any[] = []) => {
+  const result: any[] = []
+  list.forEach(ds => {
+    const datasourceId = String(ds?.id || '')
+    const datasourceName = ds?.name || ''
+    ;(ds?.children || []).forEach(table => {
+      result.push({
+        ...table,
+        datasourceId,
+        datasourceName,
+        tableName: table?.tableName || table?.name,
+        name: table?.name || table?.tableName
+      })
+    })
+  })
+  return result
+}
+
+const ensureAssistantDatasourceTables = async () => {
+  const sources = (state.dataSourceList || []).filter((ds: any) => !ds?.leaf)
+  if (!sources.length) return
+  await Promise.allSettled(sources.map(ds => loadDatasourceTables(ds)))
+}
+
+const getAssistantDatasetCandidates = () => {
+  return flattenDatasetTreeLeaves(originDatasetListForPanel.value || []).map((item: any) => ({
+    id: String(item.id || ''),
+    name: item.name || '',
+    label: item.label || item.name || ''
+  }))
+}
+
+const getAssistantTableCandidates = () => {
+  return flattenDatasourceTables(state.dataSourceList || []).map((item: any) => ({
+    datasourceId: String(item.datasourceId || ''),
+    datasourceName: item.datasourceName || '',
+    tableName: item.tableName || item.name || '',
+    name: item.name || item.tableName || ''
+  }))
+}
+
+const normalizeAssistantPlan = (res: any) => {
+  const root = res?.chartData?.plan
+  if (!root || typeof root !== 'object') return null
+  const plan = root?.plan && typeof root.plan === 'object' ? root.plan : root
+  return {
+    reply: String(res?.apiMsg || root?.reply || ''),
+    plan
+  }
+}
+
+const findAssistantDatasetCandidate = (nodeSpec: any) => {
+  const target = normalizeAiText(nodeSpec?.datasetName || nodeSpec?.name)
+  if (!target) return null
+  const candidates = getAssistantDatasetCandidates()
+  return (
+    candidates.find(item => normalizeAiText(item.name) === target) ||
+    candidates.find(item => normalizeAiText(item.name).includes(target) || target.includes(normalizeAiText(item.name))) ||
+    null
+  )
+}
+
+const findAssistantTableCandidate = (nodeSpec: any) => {
+  const tableName = normalizeAiText(nodeSpec?.tableName || nodeSpec?.name)
+  const datasourceName = normalizeAiText(nodeSpec?.datasourceName)
+  const tables = getAssistantTableCandidates()
+  const exact = tables.find(item => {
+    const tableMatch = normalizeAiText(item.tableName) === tableName
+    const dsMatch = !datasourceName || normalizeAiText(item.datasourceName) === datasourceName
+    return tableMatch && dsMatch
+  })
+  if (exact) return exact
+  return (
+    tables.find(item => normalizeAiText(item.tableName) === tableName) ||
+    tables.find(
+      item =>
+        normalizeAiText(item.tableName).includes(tableName) ||
+        tableName.includes(normalizeAiText(item.tableName))
+    ) ||
+    null
+  )
+}
+
+const findExistingCanvasNode = (nodeSpec: any, resolvedCandidate?: any) => {
+  const graphNodes = datasetDrag.value?.getGraphState?.()?.nodes || []
+  const nodeType = String(nodeSpec?.nodeType || '')
+  const targetName = normalizeAiText(nodeSpec?.name || nodeSpec?.datasetName || nodeSpec?.tableName)
+  for (const item of graphNodes) {
+    const canvasNode = datasetDrag.value?.getCanvasNode?.(item.id)
+    if (!canvasNode) continue
+    if (nodeType === 'dataset' && canvasNode.type === 'dataset') {
+      const datasetId = String(
+        canvasNode.datasetId ||
+          (() => {
+            try {
+              return JSON.parse(canvasNode.info || '{}')?.datasetId || ''
+            } catch {
+              return ''
+            }
+          })()
+      )
+      if (
+        (resolvedCandidate?.id && datasetId === String(resolvedCandidate.id)) ||
+        normalizeAiText(canvasNode.tableName) === targetName
+      ) {
+        return canvasNode
+      }
+    }
+    if ((nodeType === 'table' || nodeType === 'db') && canvasNode.type === 'db') {
+      if (
+        (resolvedCandidate?.datasourceId &&
+          String(canvasNode.datasourceId || '') === String(resolvedCandidate.datasourceId) &&
+          normalizeAiText(canvasNode.tableName) === normalizeAiText(resolvedCandidate.tableName)) ||
+        normalizeAiText(canvasNode.tableName) === targetName
+      ) {
+        return canvasNode
+      }
+    }
+  }
+  return null
+}
+
+const buildAssistantNodePosition = (nodeSpec: any, index: number, total: number) => {
+  const nodeType = String(nodeSpec?.nodeType || '')
+  if (nodeType === 'operation') {
+    return { x: 420, y: 140 + Math.max(0, total - 2) * 20 }
+  }
+  if (nodeType === 'result') {
+    return { x: 740, y: 160 }
+  }
+  return {
+    x: 100,
+    y: 80 + index * 140
+  }
+}
+
+const ensureAssistantPlanNode = async (
+  nodeSpec: any,
+  index: number,
+  total: number,
+  positionMap?: Record<string, { x: number; y: number }>
+) => {
+  const nodeType = String(nodeSpec?.nodeType || '')
+  const planKey = String(nodeSpec?.key || '')
+  const plannedPosition = (planKey && positionMap?.[planKey]) || buildAssistantNodePosition(nodeSpec, index, total)
+  if (nodeType === 'result') {
+    return datasetDrag.value?.getCanvasNode?.('result_output') || { id: 'result_output', type: 'result' }
+  }
+
+  if (nodeType === 'operation') {
+    const normalizedOperationType = normalizeAssistantOperationType(nodeSpec?.operationType)
+    if (!normalizedOperationType || !isAssistantOperationAllowed(normalizedOperationType)) {
+      throw new Error(
+        'Unsupported assistant operation node: ' +
+          String(nodeSpec?.operationType || normalizedOperationType || 'unknown')
+      )
+    }
+    return await datasetDrag.value?.addNodeByPayload?.(
+      {
+        type: 'operation',
+        operationType: normalizedOperationType || nodeSpec?.operationType,
+        tableName: nodeSpec?.name || (normalizedOperationType === 'join' ? 'Join' : '')
+      },
+      plannedPosition
+    )
+  }
+
+  if (nodeType === 'dataset') {
+    const candidate = findAssistantDatasetCandidate(nodeSpec)
+    if (!candidate) {
+      throw new Error('Dataset not found: ' + String(nodeSpec?.datasetName || nodeSpec?.name || ''))
+    }
+    const reused = findExistingCanvasNode(nodeSpec, candidate)
+    if (reused) {
+      if (!reused.currentDsFields?.length) {
+        await syncDatasetReferenceNode(reused, candidate.id, { preview: false })
+      }
+      return reused
+    }
+    const newNode = await datasetDrag.value?.addNodeByPayload?.(
+      {
+        type: 'dataset',
+        datasetId: candidate.id,
+        tableName: candidate.name,
+        name: candidate.name
+      },
+      plannedPosition,
+      { hydrateDatasetFields: false }
+    )
+    if (newNode) {
+      await syncDatasetReferenceNode(newNode, candidate.id, { preview: false })
+    }
+    return newNode
+  }
+
+  const tableCandidate = findAssistantTableCandidate(nodeSpec)
+  if (!tableCandidate) {
+    throw new Error('Table not found: ' + String(nodeSpec?.tableName || nodeSpec?.name || ''))
+  }
+  const reused = findExistingCanvasNode(nodeSpec, tableCandidate)
+  if (reused) {
+    if (!reused.currentDsFields?.length) {
+      reused.currentDsFields = await loadRawFieldsForNode(reused)
+    }
+    return reused
+  }
+  return await datasetDrag.value?.addNodeByPayload?.(
+    {
+      type: 'db',
+      datasourceId: tableCandidate.datasourceId,
+      tableName: tableCandidate.tableName,
+      name: tableCandidate.tableName
+    },
+    plannedPosition,
+    { fetchFields: true }
+  )
+}
+
+const executeAssistantCanvasPlan = async (normalized: { reply: string; plan: any }) => {
+  const plan = normalized?.plan || {}
+  if (plan?.intent !== 'build_dataset_canvas') {
+    throw new Error('Assistant did not return an executable canvas plan')
+  }
+  const enhancedPlan = enrichAssistantJoinPlan(plan)
+  const nodes = Array.isArray(enhancedPlan?.nodes) ? enhancedPlan.nodes : []
+  const links = Array.isArray(enhancedPlan?.links) ? enhancedPlan.links : []
+  if (!nodes.length) {
+    throw new Error('Model did not return executable nodes')
+  }
+
+  const positionMap = buildAssistantNodePositionMap(nodes)
+  const nodeIdMap: Record<string, string> = {}
+  for (let i = 0; i < nodes.length; i++) {
+    const spec = nodes[i]
+    const ensuredNode = await ensureAssistantPlanNode(spec, i, nodes.length, positionMap)
+    if (!ensuredNode?.id) {
+      throw new Error('Failed to create node: ' + String(spec?.name || spec?.key || 'unknown'))
+    }
+    if (spec?.key) {
+      nodeIdMap[String(spec.key)] = String(ensuredNode.id)
+    }
+  }
+
+  for (const link of links) {
+    const fromId = nodeIdMap[String(link?.from || '')]
+    const toKey = String(link?.to || '')
+    const toId = nodeIdMap[toKey] || (toKey === 'result_output' ? 'result_output' : '')
+    if (!fromId || !toId) continue
+    const connected = datasetDrag.value?.connectNodes?.(fromId, toId, {
+      clearTargetIncoming: toId === 'result_output'
+    })
+    if (!connected) {
+      throw new Error('Failed to connect link: ' + String(link?.from || '') + ' -> ' + String(link?.to || ''))
+    }
+  }
+
+  const joinConfig = plan?.joinConfig
+  if (joinConfig?.leftNode && joinConfig?.rightNode) {
+    const applied = datasetDrag.value?.applyJoinConfig?.({
+      leftNodeId: nodeIdMap[String(joinConfig.leftNode)],
+      rightNodeId: nodeIdMap[String(joinConfig.rightNode)],
+      joinType: normalizeAssistantJoinType(joinConfig.joinType),
+      mappings: joinConfig.mappings || []
+    })
+    if (!applied) {
+      throw new Error('Failed to apply join field mappings')
+    }
+  }
+
+  addComplete()
+  changeUpdate()
+  updateAllfields()
+  await nextTick()
+  handleSelectPreviewNode({ id: 'result_output', type: 'result' })
+}
+
+const handleAiSend = async () => {
+  const question = aiInputText.value.trim()
+  if (!question || aiLoading.value) return
+  aiMessages.value.push({ role: 'user', content: question })
+  aiInputText.value = ''
+  aiLoading.value = true
+
+  try {
+    await ensureAssistantDatasourceTables()
+    const res = await copilotChat({
+      question,
+      msgType: 'dataset_canvas',
+      engineType: 'volcengine',
+      datasetGroupId: nodeInfo.id || undefined,
+      chartData: {
+        datasetName: datasetName.value,
+        availableDatasets: getAssistantDatasetCandidates(),
+        availableTables: getAssistantTableCandidates(),
+        currentCanvas: datasetDrag.value?.getGraphState?.() || null,
+        model: 'doubao-seed-2-0-code-preview-260215'
+      }
+    })
+
+    const normalized = normalizeAssistantPlan(res)
+    if (!normalized) {
+      throw new Error(res?.errMsg || '鍔╂墜杩斿洖鍐呭鏃犳硶瑙ｆ瀽')
+    }
+
+    await executeAssistantCanvasPlan(normalized)
+    aiMessages.value.push({
+      role: 'assistant',
+      content: normalized.reply || '已根据描述更新画布'
+    })
+  } catch (error) {
+    console.error('handleAiSend error:', error)
+    const message =
+      error?.response?.data?.message ||
+      error?.response?.data?.msg ||
+      error?.response?.data?.errMsg ||
+      error?.message ||
+      '鏅鸿兘鍔╂墜鎵ц澶辫触'
+    aiMessages.value.push({
+      role: 'assistant',
+      content: '执行失败：' + String(message || '')
+    })
+    ElMessage.error(message)
+  } finally {
+    aiLoading.value = false
+  }
 }
 
 const resetDfsFields = (arr, idMap) => {
@@ -2088,7 +2618,7 @@ const resetAllfieldsUnionId = (arr, idMap) => {
   return JSON.parse(strUnion)
 }
 
-/** 结果集落盘：收集连到结果集节点的输出配置（如排序），供保存时一并提交 */
+/** 缁撴灉闆嗚惤鐩橈細鏀堕泦杩炲埌缁撴灉闆嗚妭鐐圭殑杈撳嚭閰嶇疆锛堝鎺掑簭锛夛紝渚涗繚瀛樻椂涓€骞舵彁浜?*/
 const getResultOutputConfig = () => {
   const node = datasetDrag.value?.getResultInputNode?.()
   if (!node || (node as any).operationType !== 'sort') return {}
@@ -2105,7 +2635,7 @@ const datasetSave = () => {
   dfsNodeList(union, datasetDrag.value.getNodeList())
   const pid = appStore.getIsDataEaseBi ? embeddedStore.datasetPid : route.query.pid || nodeInfo.pid
   if (!union.length) {
-    ElMessage.error('数据集不能为空')
+    ElMessage.error('Dataset cannot be empty')
     return
   }
   if (nodeInfo.pid && !nodeInfo.id) {
@@ -2138,26 +2668,26 @@ const datasetSaveAndBack = () => {
 
 const datasetPreviewLoading = ref(false)
 
-/** dataset 引用节点正在加载字段：防止 handleDrop -> select-node 竞态触发预览时 datasourceId 未就绪 */
+/** dataset 寮曠敤鑺傜偣姝ｅ湪鍔犺浇瀛楁锛氶槻姝?handleDrop -> select-node 绔炴€佽Е鍙戦瑙堟椂 datasourceId 鏈氨缁?*/
 const datasetNodeLoading = ref(false)
 
-/** 画布选中节点变化：更新选中态并立即按节点刷新预览
- * - 数据表/SQL 节点：只预览该表
- * - 操作节点：按该节点回溯子树预览
- * - 结果集节点：使用整棵图预览
+/** 鐢诲竷閫変腑鑺傜偣鍙樺寲锛氭洿鏂伴€変腑鎬佸苟绔嬪嵆鎸夎妭鐐瑰埛鏂伴瑙?
+ * - 鏁版嵁琛?SQL 鑺傜偣锛氬彧棰勮璇ヨ〃
+ * - 鎿嶄綔鑺傜偣锛氭寜璇ヨ妭鐐瑰洖婧瓙鏍戦瑙?
+ * - 缁撴灉闆嗚妭鐐癸細浣跨敤鏁存５鍥鹃瑙?
  */
 const handleSelectPreviewNode = (node: { id: string; type?: string } | null) => {
   selectedPreviewNodeId.value = node ? node.id : ''
   selectedPreviewNode.value = node
-  // 任意节点（包括结果集）点击时，实时刷新预览：
-  // - 结果集节点：预览整棵结果集（联合/关联后的数据）
-  // - 其它节点：按节点类型预览（表/SQL/操作）
+  // 浠绘剰鑺傜偣锛堝寘鎷粨鏋滈泦锛夌偣鍑绘椂锛屽疄鏃跺埛鏂伴瑙堬細
+  // - 缁撴灉闆嗚妭鐐癸細棰勮鏁存５缁撴灉闆嗭紙鑱斿悎/鍏宠仈鍚庣殑鏁版嵁锛?
+  // - 鍏跺畠鑺傜偣锛氭寜鑺傜偣绫诲瀷棰勮锛堣〃/SQL/鎿嶄綔锛?
   if (node) {
     datasetPreview()
   }
 }
 
-/** 按选中的画布节点过滤预览列：未选或选结果集时显示全部，否则只显示该节点对应表的字段 */
+/** 鎸夐€変腑鐨勭敾甯冭妭鐐硅繃婊ら瑙堝垪锛氭湭閫夋垨閫夌粨鏋滈泦鏃舵樉绀哄叏閮紝鍚﹀垯鍙樉绀鸿鑺傜偣瀵瑰簲琛ㄧ殑瀛楁 */
 const previewColumnsForDisplay = computed(() => {
   const fields = previewFieldsFull.value
   if (!fields.length) return []
@@ -2172,11 +2702,11 @@ const previewColumnsForDisplay = computed(() => {
   return generateColumns(filtered)
 })
 
-// 兼容多种返回结构：后端为 { data: { fields, data } }（getPreviewData 已取 res.data 时 res 即内层）
+// 鍏煎澶氱杩斿洖缁撴瀯锛氬悗绔负 { data: { fields, data } }锛坓etPreviewData 宸插彇 res.data 鏃?res 鍗冲唴灞傦級
 const getPreviewPayload = (res: any) => {
   if (!res) return { fields: [], data: [] }
   const inner = res?.data ?? res
-  // 字段可能在 inner.fields，或在 inner.data.fields（嵌套 data 时）
+  // 瀛楁鍙兘鍦?inner.fields锛屾垨鍦?inner.data.fields锛堝祵濂?data 鏃讹級
   const fields = (inner?.fields ?? inner?.data?.fields ?? res?.allFields ?? []) as Field[]
   const data = (Array.isArray(inner?.data)
     ? inner.data
@@ -2186,10 +2716,10 @@ const getPreviewPayload = (res: any) => {
   return { fields, data }
 }
 
-/** 最近一次预览返回的完整字段列表（含 datasetTableId），用于按节点过滤 */
+/** 鏈€杩戜竴娆￠瑙堣繑鍥炵殑瀹屾暣瀛楁鍒楄〃锛堝惈 datasetTableId锛夛紝鐢ㄤ簬鎸夎妭鐐硅繃婊?*/
 const previewFieldsFull = ref<Array<Field & { datasetTableId?: string }>>([])
 
-// 预览单元格显示：对象转字符串，长文本截断，避免 [object Object] 或整段 JSON 占满
+// 棰勮鍗曞厓鏍兼樉绀猴細瀵硅薄杞瓧绗︿覆锛岄暱鏂囨湰鎴柇锛岄伩鍏?[object Object] 鎴栨暣娈?JSON 鍗犳弧
 const formatPreviewCell = (value: unknown): string => {
   if (value === null || value === undefined) return ''
   if (typeof value === 'object') return JSON.stringify(value)
@@ -2253,9 +2783,9 @@ const loadRawFieldsForNode = async (node: any) => {
   try {
     const res = await getTableField({ datasourceId, id, info, tableName, type })
     const raw = (res || []) as any[]
-    // 统一走 normalizeField，补齐 id/datasetTableId/datasourceId 等信息，便于预览和后续筛选
+    // 缁熶竴璧?normalizeField锛岃ˉ榻?id/datasetTableId/datasourceId 绛変俊鎭紝渚夸簬棰勮鍜屽悗缁瓫閫?
     const normalized = raw.map(f => normalizeField(cloneDeep(f), id, datasourceId || ''))
-    // 将当前表的原始字段合并进 allfields，保证维度/指标树在切换节点时能显示该表字段
+    // 灏嗗綋鍓嶈〃鐨勫師濮嬪瓧娈靛悎骞惰繘 allfields锛屼繚璇佺淮搴?鎸囨爣鏍戝湪鍒囨崲鑺傜偣鏃惰兘鏄剧ず璇ヨ〃瀛楁
     const hasTableFields = allfields.value.some(ele => (ele as any).datasetTableId === id)
     if (!hasTableFields && normalized.length) {
       allfields.value = [...allfields.value, ...normalized]
@@ -2290,7 +2820,7 @@ const resolveRowFieldKey = (
   return (hit as any)?.dataeaseName || (hit as any)?.originName || f
 }
 
-/** 从实际行数据中解析排序用键（以第一行真实 key 为准，兼容 dataeaseName / originName） */
+/** 浠庡疄闄呰鏁版嵁涓В鏋愭帓搴忕敤閿紙浠ョ涓€琛岀湡瀹?key 涓哄噯锛屽吋瀹?dataeaseName / originName锛?*/
 const resolveSortKeyFromRow = (
   sortField: string,
   fields: Array<Field & { datasetTableId?: string }>,
@@ -2300,9 +2830,9 @@ const resolveSortKeyFromRow = (
   if (!sampleRow || typeof sampleRow !== 'object') return resolveRowFieldKey(sortField, fields)
   const rowKeys = Object.keys(sampleRow)
   if (!rowKeys.length) return resolveRowFieldKey(sortField, fields)
-  // 1) 配置的 sortField 与行 key 完全一致
+  // 1) 閰嶇疆鐨?sortField 涓庤 key 瀹屽叏涓€鑷?
   if (rowKeys.includes(sortField)) return sortField
-  // 2) 通过 fields 找到对应字段，用其 dataeaseName/originName 在行里找
+  // 2) 閫氳繃 fields 鎵惧埌瀵瑰簲瀛楁锛岀敤鍏?dataeaseName/originName 鍦ㄨ閲屾壘
   const hit = fields.find(
     x =>
       (x as any).dataeaseName === sortField ||
@@ -2315,7 +2845,7 @@ const resolveSortKeyFromRow = (
     const found = candidates.find(c => c && rowKeys.includes(c))
     if (found) return found
   }
-  // 3) 无 fields 时：行 key 以 sortField 结尾（如 xxx.dept_id、f_xxx 对应 originName）
+  // 3) 鏃?fields 鏃讹細琛?key 浠?sortField 缁撳熬锛堝 xxx.dept_id銆乫_xxx 瀵瑰簲 originName锛?
   const bySuffix = rowKeys.find(k => k === sortField || k.endsWith('.' + sortField) || k.endsWith('_' + sortField))
   if (bySuffix) return bySuffix
   return resolveRowFieldKey(sortField, fields)
@@ -2407,11 +2937,11 @@ const applyOperationPreview = (
     return result
   }
 
-  // join/union/transform/pivot/unpivot/selfloop/mirror 暂不改变行集，仅展示上游原始预览
+  // join/union/transform/pivot/unpivot/selfloop/mirror 鏆備笉鏀瑰彉琛岄泦锛屼粎灞曠ず涓婃父鍘熷棰勮
   return rows
 }
 
-/** 为排序节点构建后端需要的 sortFields（ORDER BY），用于预览时由服务端返回排序结果 */
+/** 涓烘帓搴忚妭鐐规瀯寤哄悗绔渶瑕佺殑 sortFields锛圤RDER BY锛夛紝鐢ㄤ簬棰勮鏃剁敱鏈嶅姟绔繑鍥炴帓搴忕粨鏋?*/
 const buildSortFieldsForPreview = (
   node: any,
   fields: Array<Record<string, any>>
@@ -2434,31 +2964,31 @@ const buildSortFieldsForPreview = (
 
 const datasetPreview = async () => {
   if (datasetPreviewLoading.value) return
-  // 如果选中了 dataset 节点但字段尚未加载完成（handleLoadDatasetFields 异步执行中），直接返回
-  // 防止 handleDrop -> select-node 竞态：鼠标点击触发预览时 datasourceId 尚未就绪
+  // 濡傛灉閫変腑浜?dataset 鑺傜偣浣嗗瓧娈靛皻鏈姞杞藉畬鎴愶紙handleLoadDatasetFields 寮傛鎵ц涓級锛岀洿鎺ヨ繑鍥?
+  // 闃叉 handleDrop -> select-node 绔炴€侊細榧犳爣鐐瑰嚮瑙﹀彂棰勮鏃?datasourceId 灏氭湭灏辩华
   const selectedNode = selectedPreviewNode.value
   if (selectedNode?.type === 'dataset' && datasetNodeLoading.value) return
   const arr: any[] = []
   const nodeList = datasetDrag.value.getNodeList()
   let fieldsForRequest: any[] = allfields.value
 
-  // 计算“有效预览节点”：
-  // - 未选中节点或选中结果集(result)：结果集预览优先复用“数据集页面”的预览逻辑，确保两边一致
-  // - 若需要本地预览（新建或有未保存修改），再根据上游关系决定是否走联合节点预览或整棵图
-  // - 选中具体节点：按节点类型预览（表节点仅预览该表；操作节点预览其上游输入并应用操作）
+  // 璁＄畻鈥滄湁鏁堥瑙堣妭鐐光€濓細
+  // - 鏈€変腑鑺傜偣鎴栭€変腑缁撴灉闆?result)锛氱粨鏋滈泦棰勮浼樺厛澶嶇敤鈥滄暟鎹泦椤甸潰鈥濈殑棰勮閫昏緫锛岀‘淇濅袱杈逛竴鑷?
+  // - 鑻ラ渶瑕佹湰鍦伴瑙堬紙鏂板缓鎴栨湁鏈繚瀛樹慨鏀癸級锛屽啀鏍规嵁涓婃父鍏崇郴鍐冲畾鏄惁璧拌仈鍚堣妭鐐归瑙堟垨鏁存５鍥?
+  // - 閫変腑鍏蜂綋鑺傜偣锛氭寜鑺傜偣绫诲瀷棰勮锛堣〃鑺傜偣浠呴瑙堣琛紱鎿嶄綔鑺傜偣棰勮鍏朵笂娓歌緭鍏ュ苟搴旂敤鎿嶄綔锛?
   let effectiveNode: any = selectedPreviewNode.value
   const isResultSelected =
     !effectiveNode ||
     selectedPreviewNodeId.value === 'result_output' ||
     effectiveNode?.type === 'result'
-  // 不再在编辑态使用 getDatasetPreview，统一走 getPreviewData + 当前画布 graphState，保证保存前后预览一致
+  // 涓嶅啀鍦ㄧ紪杈戞€佷娇鐢?getDatasetPreview锛岀粺涓€璧?getPreviewData + 褰撳墠鐢诲竷 graphState锛屼繚璇佷繚瀛樺墠鍚庨瑙堜竴鑷?
 
   if (isResultSelected) {
     const resultInput = datasetDrag.value?.getResultInputNode?.()
     if (
       resultInput &&
       (resultInput as any).type === 'operation' &&
-      // 结果集直接连到操作节点时：统一由后端返回操作后的最终预览
+      // 缁撴灉闆嗙洿鎺ヨ繛鍒版搷浣滆妭鐐规椂锛氱粺涓€鐢卞悗绔繑鍥炴搷浣滃悗鐨勬渶缁堥瑙?
       ['union', 'deduplicate', 'sample', 'group'].includes((resultInput as any).operationType)
     ) {
       effectiveNode = resultInput
@@ -2468,18 +2998,18 @@ const datasetPreview = async () => {
     }
   }
 
-  // 若有有效预览节点，则根据节点类型决定预览范围：
-  // - db/sql：仅该表（children 置空）
-  // - operation：以该操作的上游数据节点作为输入，再在本地应用 operation（如 sample/group 等）
-  // - mirror：预览源节点的数据（镜像节点透明传递上游数据）
-  // 修复：nodeList 为空时（节点未连接到结果集），直接用 effectiveNode 构建预览
+  // 鑻ユ湁鏈夋晥棰勮鑺傜偣锛屽垯鏍规嵁鑺傜偣绫诲瀷鍐冲畾棰勮鑼冨洿锛?
+  // - db/sql锛氫粎璇ヨ〃锛坈hildren 缃┖锛?
+  // - operation锛氫互璇ユ搷浣滅殑涓婃父鏁版嵁鑺傜偣浣滀负杈撳叆锛屽啀鍦ㄦ湰鍦板簲鐢?operation锛堝 sample/group 绛夛級
+  // - mirror锛氶瑙堟簮鑺傜偣鐨勬暟鎹紙闀滃儚鑺傜偣閫忔槑浼犻€掍笂娓告暟鎹級
+  // 淇锛歯odeList 涓虹┖鏃讹紙鑺傜偣鏈繛鎺ュ埌缁撴灉闆嗭級锛岀洿鎺ョ敤 effectiveNode 鏋勫缓棰勮
   if (effectiveNode && effectiveNode.id !== 'result_output') {
     const node: any = effectiveNode
     if (node.type === 'mirror') {
-      // 镜像节点：解析到源节点并预览
+      // 闀滃儚鑺傜偣锛氳В鏋愬埌婧愯妭鐐瑰苟棰勮
       const sourceNode = datasetDrag.value?.getMirrorSourceNode?.(node.id)
       if (sourceNode && (sourceNode.type === 'db' || sourceNode.type === 'sql')) {
-        // 源节点是数据表：直接预览该表
+        // 婧愯妭鐐规槸鏁版嵁琛細鐩存帴棰勮璇ヨ〃
         const isolatedNode = { ...cloneDeep(sourceNode), children: [] }
         dfsNodeList(arr, [isolatedNode])
         const tableId = sourceNode.id
@@ -2491,10 +3021,10 @@ const datasetPreview = async () => {
           }
         }
       } else if (sourceNode && sourceNode.type === 'operation') {
-        // 源节点是操作节点：统一由后端根据 previewNodeId 返回最终预览
+        // 婧愯妭鐐规槸鎿嶄綔鑺傜偣锛氱粺涓€鐢卞悗绔牴鎹?previewNodeId 杩斿洖鏈€缁堥瑙?
         const opType = (sourceNode as any).operationType
         if (opType === 'join') {
-          // 联接节点：获取两个上游输入并执行 JOIN
+          // 鑱旀帴鑺傜偣锛氳幏鍙栦袱涓笂娓歌緭鍏ュ苟鎵ц JOIN
           const upstreams = datasetDrag.value?.getAllUpstreamNodes?.(sourceNode.id) || []
           const dataUpstreams = upstreams.filter((n: any) => n && (n.type === 'db' || n.type === 'sql'))
           if (dataUpstreams.length === 2) {
@@ -2504,7 +3034,7 @@ const datasetPreview = async () => {
             const ids = new Set([root.id, child.id])
             fieldsForRequest = allfields.value.filter(f => ids.has((f as any).datasetTableId))
           } else {
-            ElMessage.warning('联接节点需要恰好连接两个数据表节点')
+            ElMessage.warning('鑱旀帴鑺傜偣闇€瑕佹伆濂借繛鎺ヤ袱涓暟鎹〃鑺傜偣')
             return
           }
         } else {
@@ -2519,13 +3049,13 @@ const datasetPreview = async () => {
           if (opType === 'union') {
             const upstreams = datasetDrag.value?.getUnionDirectUpstreams?.(sourceNode.id) || []
             if (upstreams.length !== 2) {
-              ElMessage.warning('联合节点需要恰好连接两个输入节点')
+              ElMessage.warning('Union node requires exactly two input nodes')
               return
             }
             const leftNode = resolveDataNode(upstreams[0])
             const rightNode = resolveDataNode(upstreams[1])
             if (!leftNode || !rightNode) {
-              ElMessage.warning('联合节点的两个输入均需能追溯到数据表节点')
+              ElMessage.warning('Both union inputs must resolve to data table nodes')
               return
             }
             upstream = leftNode
@@ -2554,22 +3084,22 @@ const datasetPreview = async () => {
             }
             effectiveNode = sourceNode
           } else {
-            ElMessage.warning('操作节点未连接到数据源')
+            ElMessage.warning('Operation node is not connected to a data source')
             return
           }
         }
       } else {
-        // 镜像节点未连接到源节点时，提示用户
-        ElMessage.warning('请先将数据节点或操作节点连接到镜像节点')
+        // 闀滃儚鑺傜偣鏈繛鎺ュ埌婧愯妭鐐规椂锛屾彁绀虹敤鎴?
+        ElMessage.warning('Please connect a data or operation node to the mirror node first')
         return
       }
     } else if (node.type === 'db' || node.type === 'sql') {
       const isolatedNode = { ...cloneDeep(node), children: [] }
       dfsNodeList(arr, [isolatedNode])
-      // 单表/SQL 预览时，仅携带该表相关字段，避免引用其他表的字段导致 SQL unknown column
+      // 鍗曡〃/SQL 棰勮鏃讹紝浠呮惡甯﹁琛ㄧ浉鍏冲瓧娈碉紝閬垮厤寮曠敤鍏朵粬琛ㄧ殑瀛楁瀵艰嚧 SQL unknown column
       const tableId = node.id
       fieldsForRequest = allfields.value.filter(f => (f as any).datasetTableId === tableId)
-      // 如果当前节点还没有任何字段配置，自动按“原始表字段”做一次懒加载预览
+      // 濡傛灉褰撳墠鑺傜偣杩樻病鏈変换浣曞瓧娈甸厤缃紝鑷姩鎸夆€滃師濮嬭〃瀛楁鈥濆仛涓€娆℃噿鍔犺浇棰勮
       if (!fieldsForRequest.length) {
         const raw = await loadRawFieldsForNode(node)
         if (raw.length) {
@@ -2582,20 +3112,20 @@ const datasetPreview = async () => {
         return
       }
 
-      // dataset 引用节点：节点已有字段（handleLoadDatasetFields 加载），直接用于预览
+      // dataset 寮曠敤鑺傜偣锛氳妭鐐瑰凡鏈夊瓧娈碉紙handleLoadDatasetFields 鍔犺浇锛夛紝鐩存帴鐢ㄤ簬棰勮
       const isolatedNode = { ...cloneDeep(node), children: [] }
       dfsNodeList(arr, [isolatedNode])
       const tableId = node.id
       
-      // 优先从 allfields 中获取该节点的字段
+      // 浼樺厛浠?allfields 涓幏鍙栬鑺傜偣鐨勫瓧娈?
       fieldsForRequest = allfields.value.filter(f => (f as any).datasetTableId === tableId)
       
-      // 如果 allfields 中没有该节点的字段，但节点已有 currentDsFields，则使用节点的字段
+      // 濡傛灉 allfields 涓病鏈夎鑺傜偣鐨勫瓧娈碉紝浣嗚妭鐐瑰凡鏈?currentDsFields锛屽垯浣跨敤鑺傜偣鐨勫瓧娈?
       if (!fieldsForRequest.length && node.currentDsFields?.length) {
         fieldsForRequest = (node.currentDsFields || []).map((f: any) =>
           normalizeField(cloneDeep(f), tableId, node.datasourceId || '')
         )
-        // 同时同步到 allfields（保证后续预览时能从中读取）
+        // 鍚屾椂鍚屾鍒?allfields锛堜繚璇佸悗缁瑙堟椂鑳戒粠涓鍙栵級
         const existingIds = new Set(allfields.value.map((f: any) => f.id))
         const newFields = fieldsForRequest.filter((f: any) => !existingIds.has(f.id))
         if (newFields.length) {
@@ -2604,14 +3134,14 @@ const datasetPreview = async () => {
       }
       
       if (!fieldsForRequest.length) {
-        // 引用数据集节点字段尚未就绪或为空时静默返回，避免拖入画布时出现打断性提示
+        // 寮曠敤鏁版嵁闆嗚妭鐐瑰瓧娈靛皻鏈氨缁垨涓虹┖鏃堕潤榛樿繑鍥烇紝閬垮厤鎷栧叆鐢诲竷鏃跺嚭鐜版墦鏂€ф彁绀?
         return
       }
     } else if (node.type === 'operation' && node.operationType === 'union') {
-      // 联合节点预览统一走后端，避免前端双请求合并导致 total 与页面结果不一致
+      // 鑱斿悎鑺傜偣棰勮缁熶竴璧板悗绔紝閬垮厤鍓嶇鍙岃姹傚悎骞跺鑷?total 涓庨〉闈㈢粨鏋滀笉涓€鑷?
       const upstreams = datasetDrag.value?.getUnionDirectUpstreams?.(node.id) || []
       if (upstreams.length !== 2) {
-        ElMessage.warning('联合节点需要恰好连接两个输入节点')
+        ElMessage.warning('Union node requires exactly two input nodes')
         return
       }
       const resolveDataNode = (n: any) => {
@@ -2622,7 +3152,7 @@ const datasetPreview = async () => {
       const dataNode0 = resolveDataNode(upstreams[0])
       const dataNode1 = resolveDataNode(upstreams[1])
       if (!dataNode0 || !dataNode1) {
-        ElMessage.warning('联合节点的两个输入均需能追溯到数据表节点')
+        ElMessage.warning('Both union inputs must resolve to data table nodes')
         return
       }
       const isolatedNode = { ...cloneDeep(dataNode0), children: [] }
@@ -2634,15 +3164,15 @@ const datasetPreview = async () => {
       fieldsForRequest = [...fields0, ...fields1]
       effectiveNode = node
     } else if (node.type === 'operation' && node.operationType === 'join') {
-      // 联接节点：由后端根据 union 结构生成 JOIN SQL 预览联接后的结果
-      // 注意：画布的 getNodeList() 以“结果集节点”为锚点构建 union 树；
-      // 若联接节点未连到结果集，getNodeList() 可能为空，导致预览为空。
-      // 因此联接节点预览以“当前 join 节点”为锚点，直接抓取其两张上游表构建 union 树。
+      // 鑱旀帴鑺傜偣锛氱敱鍚庣鏍规嵁 union 缁撴瀯鐢熸垚 JOIN SQL 棰勮鑱旀帴鍚庣殑缁撴灉
+      // 娉ㄦ剰锛氱敾甯冪殑 getNodeList() 浠モ€滅粨鏋滈泦鑺傜偣鈥濅负閿氱偣鏋勫缓 union 鏍戯紱
+      // 鑻ヨ仈鎺ヨ妭鐐规湭杩炲埌缁撴灉闆嗭紝getNodeList() 鍙兘涓虹┖锛屽鑷撮瑙堜负绌恒€?
+      // 鍥犳鑱旀帴鑺傜偣棰勮浠モ€滃綋鍓?join 鑺傜偣鈥濅负閿氱偣锛岀洿鎺ユ姄鍙栧叾涓ゅ紶涓婃父琛ㄦ瀯寤?union 鏍戙€?
       const ups = (datasetDrag.value?.getAllUpstreamNodes?.(node.id) || []).filter(
         (n: any) => n && (n.type === 'db' || n.type === 'sql')
       )
       if (ups.length !== 2) {
-        ElMessage.warning('联接节点需要恰好连接两个数据表节点')
+        ElMessage.warning('鑱旀帴鑺傜偣闇€瑕佹伆濂借繛鎺ヤ袱涓暟鎹〃鑺傜偣')
         return
       }
       const [a, b] = ups as any[]
@@ -2654,12 +3184,12 @@ const datasetPreview = async () => {
       const rootTree = { ...cloneDeep(root), children: [{ ...cloneDeep(child), children: [] }] }
       dfsNodeList(arr, [rootTree])
 
-      // 仅携带这两张表相关字段，避免引用其它表字段导致 SQL unknown column
+      // 浠呮惡甯﹁繖涓ゅ紶琛ㄧ浉鍏冲瓧娈碉紝閬垮厤寮曠敤鍏跺畠琛ㄥ瓧娈靛鑷?SQL unknown column
       const ids = new Set([root.id, child.id])
       fieldsForRequest = allfields.value.filter(f => ids.has((f as any).datasetTableId))
       effectiveNode = null
     } else if (node.type === 'operation') {
-      // 操作节点预览：回溯最近上游数据节点作为预览输入
+      // 鎿嶄綔鑺傜偣棰勮锛氬洖婧渶杩戜笂娓告暟鎹妭鐐逛綔涓洪瑙堣緭鍏?
       const upstream = datasetDrag.value?.getUpstreamDataNode?.(node.id)
       if (upstream) {
         const isolatedNode = { ...cloneDeep(upstream), children: [] }
@@ -2672,11 +3202,11 @@ const datasetPreview = async () => {
         }
       }
     } else {
-      // 其他类型（如 result）走整棵图
+      // 鍏朵粬绫诲瀷锛堝 result锛夎蛋鏁存５鍥?
       dfsNodeList(arr, nodeList)
     }
   } else {
-    // 已在上方 isResultSelected 分支处理“结果集/整棵图”预览
+    // 宸插湪涓婃柟 isResultSelected 鍒嗘敮澶勭悊鈥滅粨鏋滈泦/鏁存５鍥锯€濋瑙?
   }
 
   if (!arr.length) {
@@ -2686,9 +3216,9 @@ const datasetPreview = async () => {
     return
   }
 
-  // 若当前预览范围内没有任何字段，则不给后端发请求：
-  // - 表节点（db/sql）：优先尝试懒加载一次原始字段；若仍无字段则静默返回
-  // - 操作节点等：静默返回
+  // 鑻ュ綋鍓嶉瑙堣寖鍥村唴娌℃湁浠讳綍瀛楁锛屽垯涓嶇粰鍚庣鍙戣姹傦細
+  // - 琛ㄨ妭鐐癸紙db/sql锛夛細浼樺厛灏濊瘯鎳掑姞杞戒竴娆″師濮嬪瓧娈碉紱鑻ヤ粛鏃犲瓧娈靛垯闈欓粯杩斿洖
+  // - 鎿嶄綔鑺傜偣绛夛細闈欓粯杩斿洖
   if (!fieldsForRequest.length) {
     if (effectiveNode && ['db', 'sql'].includes((effectiveNode as any).type)) {
       try {
@@ -2707,9 +3237,9 @@ const datasetPreview = async () => {
     }
   }
 
-  // 排序节点：由后端 ORDER BY 返回排序结果，不再前端排序
-  // - 若当前选中的是排序节点，则优先按该节点配置排序
-  // - 否则，若结果集直接连到了某个排序节点，则按结果集上游的排序节点配置排序
+  // 鎺掑簭鑺傜偣锛氱敱鍚庣 ORDER BY 杩斿洖鎺掑簭缁撴灉锛屼笉鍐嶅墠绔帓搴?
+  // - 鑻ュ綋鍓嶉€変腑鐨勬槸鎺掑簭鑺傜偣锛屽垯浼樺厛鎸夎鑺傜偣閰嶇疆鎺掑簭
+  // - 鍚﹀垯锛岃嫢缁撴灉闆嗙洿鎺ヨ繛鍒颁簡鏌愪釜鎺掑簭鑺傜偣锛屽垯鎸夌粨鏋滈泦涓婃父鐨勬帓搴忚妭鐐归厤缃帓搴?
   let sortNode: any = null
   const selectedNodeAny: any = effectiveNode
   if (selectedNodeAny?.type === 'operation' && selectedNodeAny.operationType === 'sort') {
@@ -2740,18 +3270,18 @@ const datasetPreview = async () => {
     const reqBody: Record<string, any> = {
       union: arr,
       allFields: fieldsForRequest,
-      // 携带当前画布的 graphState，让后端在预览时也应用抽样/排序等结果集操作，
-      // 保证编辑态与最终数据集语义一致（同时支持未保存的最新编排）。
+      // 鎼哄甫褰撳墠鐢诲竷鐨?graphState锛岃鍚庣鍦ㄩ瑙堟椂涔熷簲鐢ㄦ娊鏍?鎺掑簭绛夌粨鏋滈泦鎿嶄綔锛?
+      // 淇濊瘉缂栬緫鎬佷笌鏈€缁堟暟鎹泦璇箟涓€鑷达紙鍚屾椂鏀寔鏈繚瀛樼殑鏈€鏂扮紪鎺掞級銆?
       graphState: datasetDrag.value?.getGraphState?.() || null,
-      // 若是已存在的数据集，传入 id，便于后端在预览时应用与数据集页面相同的权限/抽样等逻辑
+      // 鑻ユ槸宸插瓨鍦ㄧ殑鏁版嵁闆嗭紝浼犲叆 id锛屼究浜庡悗绔湪棰勮鏃跺簲鐢ㄤ笌鏁版嵁闆嗛〉闈㈢浉鍚岀殑鏉冮檺/鎶芥牱绛夐€昏緫
       id: nodeInfo.id || undefined
     }
     if (sortFieldsForRequest.length) reqBody.sortFields = sortFieldsForRequest
     if (previewNodeIdForRequest) reqBody.previewNodeId = previewNodeIdForRequest
     const res = await getPreviewData(reqBody)
-    // 检查返回结果是否是错误
+    // 妫€鏌ヨ繑鍥炵粨鏋滄槸鍚︽槸閿欒
     if (res?.code && res.code !== 0 && res.code !== 200) {
-      ElMessage.error(res.msg || '预览数据失败')
+      ElMessage.error(res.msg || '棰勮鏁版嵁澶辫触')
       tableData.value = []
       columns.value = []
       previewFieldsFull.value = []
@@ -2775,7 +3305,7 @@ const datasetPreview = async () => {
         previewNodeIdForRequest ||
         (sortNode?.operationType === 'sort' && sortFieldsForRequest.length)
       ) {
-        // 已走服务端排序，无需前端再排
+        // 宸茶蛋鏈嶅姟绔帓搴忥紝鏃犻渶鍓嶇鍐嶆帓
       } else {
         previewRows = applyOperationPreview(effectiveNode, previewRows, withTableId)
       }
@@ -2808,7 +3338,7 @@ const dfsNodeList = (arr, list) => {
       type === 'dataset'
         ? datasourceId || (currentDsFields || []).find((f: any) => !!f?.datasourceId)?.datasourceId || ''
         : datasourceId || ''
-    // 保存前规范化字段，确保每个字段都有 id，避免保存后字段 ID 丢失
+    // 淇濆瓨鍓嶈鑼冨寲瀛楁锛岀‘淇濇瘡涓瓧娈甸兘鏈?id锛岄伩鍏嶄繚瀛樺悗瀛楁 ID 涓㈠け
     const normalizedFields = (currentDsFields || []).map(f =>
       normalizeField(cloneDeep(f), id, normalizedDatasourceId)
     )
@@ -2832,7 +3362,7 @@ const dfsNodeList = (arr, list) => {
   })
 }
 
-/** 从已构建的 union 树（dfsNodeList 产出）中收集所有表节点 id，用于保存时只提交这些表对应的字段，避免 SQL 引用不存在的列 */
+/** 浠庡凡鏋勫缓鐨?union 鏍戯紙dfsNodeList 浜у嚭锛変腑鏀堕泦鎵€鏈夎〃鑺傜偣 id锛岀敤浜庝繚瀛樻椂鍙彁浜よ繖浜涜〃瀵瑰簲鐨勫瓧娈碉紝閬垮厤 SQL 寮曠敤涓嶅瓨鍦ㄧ殑鍒?*/
 const collectUnionTableIds = (unionArr: any[]): Set<string> => {
   const ids = new Set<string>()
   const walk = (list: any[]) => {
@@ -2860,7 +3390,7 @@ const showCascaderBatch = computed(() => {
   return !!deTypeSelection.value.length && Array.from(new Set(deTypeSelection.value)).length === 1
 })
 
-/** 当前选中的可分组维度字段（仅当在批量管理中选中一个 文本/时间/地理位置 维度且为原始字段时有效，用于「新建分组字段」按钮） */
+/** 褰撳墠閫変腑鐨勫彲鍒嗙粍缁村害瀛楁锛堜粎褰撳湪鎵归噺绠＄悊涓€変腑涓€涓?鏂囨湰/鏃堕棿/鍦扮悊浣嶇疆 缁村害涓斾负鍘熷瀛楁鏃舵湁鏁堬紝鐢ㄤ簬銆屾柊寤哄垎缁勫瓧娈点€嶆寜閽級 */
 const selectedGroupableFieldForButton = computed(() => {
   const sel = fieldSelection.value || []
   console.log('>>> [computed] selectedGroupableFieldForButton - fieldSelection length:', sel.length)
@@ -3010,7 +3540,7 @@ const finish = res => {
   }
   allfields.value = res.allFields || []
   refreshDatasetPanel(res)
-  // 保存成功后，等待数据完全保存和字段更新后，刷新预览为联接结果
+  // 淇濆瓨鎴愬姛鍚庯紝绛夊緟鏁版嵁瀹屽叏淇濆瓨鍜屽瓧娈垫洿鏂板悗锛屽埛鏂伴瑙堜负鑱旀帴缁撴灉
   setTimeout(() => {
     handleSelectPreviewNode({ id: 'result_output', type: 'result' })
   }, 500)
@@ -3054,7 +3584,7 @@ const getDsIcon = data => {
 
 const getDsIconName = data => {
   if (!data.leaf) return 'dv-folder'
-  return `${data.type}-ds`
+  return String(data.type) + '-ds'
 }
 </script>
 
@@ -3100,9 +3630,17 @@ const getDsIconName = data => {
         </div>
       </div>
       <span class="oprate">
-        <el-button :disabled="showInput" type="primary" @click="datasetSaveAndBack"
-          >保存并返回</el-button
-        >
+        <el-button class="ai-entry-btn" :disabled="showInput" @click="showAiPanel = !showAiPanel">
+          <template #icon>
+            <el-icon class="ai-entry-icon">
+              <Icon name="icon_viewinchat_outlined"></Icon>
+            </el-icon>
+          </template>
+          {{ showAiPanel ? '收起助手' : '智能助手' }}
+        </el-button>
+        <el-button :disabled="showInput" type="primary" @click="datasetSaveAndBack">
+          保存并返回
+        </el-button>
         <el-button :disabled="showInput" type="primary" @click="datasetSave">保存</el-button>
       </span>
     </div>
@@ -3135,9 +3673,9 @@ const getDsIconName = data => {
             </span>
           </p>
 
-          <!-- 参考图布局：左右两列 -->
+          <!-- 鍙傝€冨浘甯冨眬锛氬乏鍙充袱鍒?-->
           <div class="panel-two-col">
-            <!-- 左列：我的数据集 -->
+            <!-- 宸﹀垪锛氭垜鐨勬暟鎹泦 -->
             <div class="panel-col">
               <div class="panel-col-header">
                 <span class="panel-col-title">{{ t('auth.dataset') }}</span>
@@ -3189,7 +3727,7 @@ const getDsIconName = data => {
               <div class="panel-col-body">
                 <div v-if="state.datasetLoading" class="dataset-loading-inline">
                   <el-icon class="is-loading"><Icon name="icon_loading_outlined" /></el-icon>
-                  <span>加载中...</span>
+                  <span>鍔犺浇涓?..</span>
                 </div>
                 <el-tree
                   v-else
@@ -3224,12 +3762,12 @@ const getDsIconName = data => {
                   v-if="!state.datasetLoading && !state.datasetList?.length"
                   class="empty-tip"
                 >
-                  暂无可引用的数据集
+                  鏆傛棤鍙紩鐢ㄧ殑鏁版嵁闆?
                 </div>
               </div>
             </div>
 
-            <!-- 右列：数据源 -->
+            <!-- 鍙冲垪锛氭暟鎹簮 -->
             <div class="panel-col">
               <div class="panel-col-header">
                 <span class="panel-col-title">{{ t('auth.datasource') }}</span>
@@ -3281,13 +3819,64 @@ const getDsIconName = data => {
           </div>
         </div>
       </div>
-      <div class="drag-right" :style="{ width: `calc(100vw - ${showLeft ? LeftWidth : 0}px)` }">
+      <div
+        class="drag-right"
+        :class="{ 'with-ai-panel': showAiPanel }"
+        :style="{ width: `calc(100vw - ${showLeft ? LeftWidth : 0}px)` }"
+      >
         <operation-toolbar @drag-start="handleToolbarDragStart" @drag-end="handleToolbarDragEnd" />
+        <div v-show="showAiPanel" class="ai-assistant-panel">
+          <div class="ai-assistant-header">
+            <div class="ai-assistant-brand">
+              <div class="ai-assistant-badge">
+                <el-icon>
+                  <Icon name="icon_viewinchat_outlined"></Icon>
+                </el-icon>
+              </div>
+              <div>
+                <div class="ai-assistant-title">智能助手</div>
+                <div class="ai-assistant-tip">用自然语言描述你想在画布上完成的数据集编排</div>
+              </div>
+            </div>
+            <el-button text @click="showAiPanel = false">鏀惰捣</el-button>
+          </div>
+          <div ref="aiPanelBody" class="ai-assistant-body">
+            <div v-if="!aiMessages.length" class="ai-assistant-empty">
+              渚嬪锛氭妸鈥滈暅鍍?鈥濆拰鈥滆仈鍚堟祴璇曗€濋€氳繃 `id` 瀛楁宸﹁繛鎺ワ紝骞惰緭鍑哄埌缁撴灉闆?            </div>
+            <div
+              v-for="(msg, idx) in aiMessages"
+              :key="`${msg.role}-${idx}`"
+              class="ai-message"
+              :class="msg.role"
+            >
+              <div class="ai-message-role">{{ msg.role === 'user' ? '我' : '助手' }}</div>
+              <div class="ai-message-content">{{ msg.content }}</div>
+            </div>
+            <div v-if="aiLoading" class="ai-message assistant loading">
+              <div class="ai-message-role">鍔╂墜</div>
+              <div class="ai-message-content">姝ｅ湪鐢熸垚骞跺簲鐢ㄧ敾甯冪紪鎺掕鍒?..</div>
+            </div>
+          </div>
+          <div class="ai-assistant-input">
+            <el-input
+              v-model="aiInputText"
+              type="textarea"
+              :rows="3"
+              resize="none"
+              placeholder="请输入自然语言描述，例如：将数据集A和数据集B按 user_id 左连接"
+              @keydown.enter.exact.prevent="handleAiSend"
+            />
+            <div class="ai-assistant-actions">
+              <el-button @click="aiInputText = ''">娓呯┖</el-button>
+              <el-button type="primary" :loading="aiLoading" @click="handleAiSend">发送</el-button>
+            </div>
+          </div>
+        </div>
         <div v-if="crossDatasources" class="different-datasource">
           <el-icon>
             <Icon name="icon_warning_colorful"></Icon>
           </el-icon>
-          您正在进行跨数据源的表关联,请确保使用calcite的标准语法和函数,否则会导致数据集报错
+          鎮ㄦ鍦ㄨ繘琛岃法鏁版嵁婧愮殑琛ㄥ叧鑱?璇风‘淇濅娇鐢╟alcite鐨勬爣鍑嗚娉曞拰鍑芥暟,鍚﹀垯浼氬鑷存暟鎹泦鎶ラ敊
         </div>
         <dataset-union
           @join-editor="joinEditor"
@@ -3346,7 +3935,7 @@ const getDsIconName = data => {
                     <Icon name="icon_refresh_outlined"></Icon>
                   </el-icon>
                 </template>
-                刷新数据
+                鍒锋柊鏁版嵁
               </el-button>
             </div>
           </div>
@@ -3492,7 +4081,7 @@ const getDsIconName = data => {
                   </template>
                 </el-table-column>
                 <template #empty>
-                  <empty-background description="暂无数据" img-type="noneWhite" />
+                  <empty-background description="鏆傛棤鏁版嵁" img-type="noneWhite" />
                 </template>
               </el-table>
             </div>
@@ -3868,9 +4457,9 @@ const getDsIconName = data => {
             </div>
             <div class="batch-operate flex-align-center" v-if="!!deTypeSelection.length">
               <div class="flex-align-center">
-                已选择
+                宸查€夋嫨
                 <span class="num">{{ deTypeSelection.length }}</span>
-                条
+                鏉?
                 <el-button @click="clearSelection" text style="margin-left: 16px">{{
                   t('commons.clear')
                 }}</el-button>
@@ -3910,7 +4499,7 @@ const getDsIconName = data => {
                 plain
                 style="margin-left: 200px"
               >
-                转换为指标
+                杞崲涓烘寚鏍?
               </el-button>
               <el-button
                 @click="dqTransArr('d')"
@@ -3918,7 +4507,7 @@ const getDsIconName = data => {
                 plain
                 style="margin-left: 200px"
               >
-                转换为维度
+                杞崲涓虹淮搴?
               </el-button>
             </div>
           </div>
@@ -3983,7 +4572,7 @@ const getDsIconName = data => {
       <el-button type="primary" @click="confirmFillNullField()">{{ t('dataset.confirm') }} </el-button>
     </template>
   </el-dialog>
-  <el-dialog class="create-dialog" title="格式编辑" v-model="updateCustomTime" width="1000px">
+  <el-dialog class="create-dialog" title="鏍煎紡缂栬緫" v-model="updateCustomTime" width="1000px">
     <el-form ref="ruleFormRef" :rules="rules" :model="currentField" label-width="120px">
       <el-form-item prop="name" label="自定义时间格式">
         <el-input v-model="currentField.name" />
@@ -4084,6 +4673,8 @@ const getDsIconName = data => {
 
 .de-dataset-form {
   color: #1f2329;
+  height: 100vh;
+  max-height: 100vh;
   overflow: hidden;
   position: relative;
 
@@ -4105,7 +4696,7 @@ const getDsIconName = data => {
 
     .name {
       color: #fff;
-      font-family: '阿里巴巴普惠体 3.0 55 Regular L3';
+      font-family: '闃块噷宸村反鏅儬浣?3.0 55 Regular L3';
       font-size: 16px;
       font-weight: 400;
       display: flex;
@@ -4159,6 +4750,36 @@ const getDsIconName = data => {
       display: flex;
       align-items: center;
       gap: 8px;
+
+      .ai-entry-btn {
+        position: relative;
+        overflow: hidden;
+        color: #eaf2ff;
+        border-color: rgba(120, 168, 255, 0.32);
+        background:
+          linear-gradient(135deg, rgba(74, 132, 255, 0.32), rgba(40, 208, 176, 0.18)),
+          rgba(10, 18, 36, 0.9);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 10px 24px rgba(9, 18, 38, 0.28);
+
+        :deep(.ed-button__text) {
+          font-weight: 500;
+          letter-spacing: 0.3px;
+        }
+      }
+
+      .ai-entry-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #8bb8ff 0%, #6cf0d0 100%);
+        color: #06162f;
+        box-shadow: 0 0 18px rgba(111, 193, 255, 0.32);
+      }
     }
   }
 
@@ -4167,6 +4788,7 @@ const getDsIconName = data => {
     height: calc(100% - 56px);
     min-height: 0;
     position: relative;
+    overflow: hidden;
     .drag-left {
       position: absolute;
       height: 100%;
@@ -4229,6 +4851,10 @@ const getDsIconName = data => {
       .table-list-top {
         padding: 16px;
         padding-bottom: 0;
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
         flex-shrink: 0;
         overflow: hidden;
       }
@@ -4236,7 +4862,7 @@ const getDsIconName = data => {
       width: 240px;
       padding-bottom: 16px;
 
-      font-family: '阿里巴巴普惠体 3.0 55 Regular L3';
+      font-family: '闃块噷宸村反鏅儬浣?3.0 55 Regular L3';
       border-right: 1px solid rgba(31, 35, 41, 0.15);
 
       .select-ds {
@@ -4305,10 +4931,12 @@ const getDsIconName = data => {
         width: 100%;
       }
 
-      // 两列布局
+      // 涓ゅ垪甯冨眬
       .panel-two-col {
         display: flex;
         flex-direction: column;
+        flex: 1;
+        min-height: 0;
         gap: 12px;
         margin-bottom: 8px;
       }
@@ -4316,6 +4944,8 @@ const getDsIconName = data => {
       .panel-col {
         display: flex;
         flex-direction: column;
+        flex: 1;
+        min-height: 0;
       }
 
       .panel-col-header {
@@ -4339,6 +4969,8 @@ const getDsIconName = data => {
       .panel-col-body {
         flex: 1;
         min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
       }
 
       .panel-filter-icon {
@@ -4376,15 +5008,19 @@ const getDsIconName = data => {
       }
 
       .form-left-tree-scroll {
+        flex: 1;
+        min-height: 0;
         padding: 0 4px;
+        overflow-y: auto;
+        overflow-x: hidden;
       }
 
       .form-left-tree-scroll--dataset {
-        max-height: min(260px, 30vh);
+        max-height: none;
       }
 
       .form-left-tree-scroll--datasource {
-        max-height: min(200px, 24vh);
+        max-height: none;
       }
 
       .dataset-loading-inline {
@@ -4429,7 +5065,7 @@ const getDsIconName = data => {
         padding: 12px 0;
       }
 
-      // 表列表容器
+      // 琛ㄥ垪琛ㄥ鍣?
       .table-checkbox-list-wrapper {
         flex: 1;
         min-height: 0;
@@ -4459,12 +5095,146 @@ const getDsIconName = data => {
 
   .dataset-db {
     display: flex;
+    height: 100%;
     min-height: 0;
+    overflow: hidden;
     .drag-right {
       height: 100%;
       min-height: 0;
       display: flex;
       flex-direction: column;
+      flex: 1;
+      min-width: 0;
+      position: relative;
+      overflow: hidden;
+
+      &.with-ai-panel {
+        padding-right: 284px;
+      }
+
+      .ai-assistant-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 268px;
+        height: 100%;
+        min-height: 0;
+        box-sizing: border-box;
+        border: 1px solid var(--deCardStrokeColor, #dee0e3);
+        border-radius: 0;
+        background: linear-gradient(180deg, #f9fbff 0%, #ffffff 100%);
+        overflow: hidden;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        box-shadow: none;
+
+        .ai-assistant-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          border-bottom: 1px solid rgba(31, 35, 41, 0.08);
+        }
+
+        .ai-assistant-brand {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .ai-assistant-badge {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          border-radius: 12px;
+          background:
+            radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.7), transparent 42%),
+            linear-gradient(135deg, #4d86ff 0%, #29d1b4 100%);
+          color: #fff;
+          box-shadow:
+            0 8px 18px rgba(77, 134, 255, 0.22),
+            inset 0 1px 0 rgba(255, 255, 255, 0.35);
+
+          .ed-icon {
+            font-size: 18px;
+          }
+        }
+
+        .ai-assistant-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: #1f2329;
+        }
+
+        .ai-assistant-tip {
+          margin-top: 4px;
+          font-size: 12px;
+          color: #646a73;
+        }
+
+        .ai-assistant-body {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          padding: 12px 16px 16px;
+        }
+
+        .ai-assistant-empty {
+          padding: 12px;
+          border-radius: 8px;
+          background: #f5f7fa;
+          color: #646a73;
+          font-size: 13px;
+        }
+
+        .ai-message {
+          margin-bottom: 12px;
+
+          .ai-message-role {
+            font-size: 12px;
+            color: #8f959e;
+            margin-bottom: 4px;
+          }
+
+          .ai-message-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 20px;
+          }
+
+          &.user .ai-message-content {
+            background: #3370ff;
+            color: #fff;
+          }
+
+          &.assistant .ai-message-content {
+            background: #f5f7fa;
+            color: #1f2329;
+          }
+        }
+
+        .ai-assistant-input {
+          margin-top: auto;
+          padding: 12px 16px 16px;
+          border-top: 1px solid rgba(31, 35, 41, 0.08);
+          background: #fff;
+          flex-shrink: 0;
+        }
+
+        .ai-assistant-actions {
+          margin-top: 12px;
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+      }
       .different-datasource {
         height: 40px;
         width: 100%;
@@ -4483,7 +5253,7 @@ const getDsIconName = data => {
         }
       }
       .sql-result {
-        font-family: '阿里巴巴普惠体 3.0 55 Regular L3';
+        font-family: '闃块噷宸村反鏅儬浣?3.0 55 Regular L3';
         font-size: 14px;
         overflow: hidden;
         box-sizing: border-box;
@@ -4634,7 +5404,7 @@ const getDsIconName = data => {
                 margin: 1px;
                 top: 1px;
                 height: 49px;
-                font-family: '阿里巴巴普惠体 3.0 55 Regular L3';
+                font-family: '闃块噷宸村反鏅儬浣?3.0 55 Regular L3';
                 font-style: normal;
                 font-weight: 500;
                 font-size: 14px;

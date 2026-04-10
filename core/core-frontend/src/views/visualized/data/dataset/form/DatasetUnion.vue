@@ -309,6 +309,325 @@ const getSourceDataNodeId = (mirrorNode: FlowNode): string => {
   return sourceNode.id
 }
 
+const resolveCanvasPosition = (position?: { x?: number; y?: number }) => {
+  const nonResultNodes = nodes.filter(n => n.type !== 'result')
+  const fallbackX = nonResultNodes.length
+    ? Math.max(...nonResultNodes.map(n => n.x)) + 220
+    : 80
+  const fallbackY = nonResultNodes.length ? 120 + (nonResultNodes.length % 4) * 70 : 120
+  return {
+    x: Math.max(0, Number(position?.x ?? fallbackX)),
+    y: Math.max(0, Number(position?.y ?? fallbackY))
+  }
+}
+
+const getCanvasNode = (nodeId: string) => {
+  return nodes.find(n => n.id === nodeId) || null
+}
+
+const addNodeByPayload = async (
+  data: Record<string, any>,
+  position?: { x?: number; y?: number },
+  options?: { fetchFields?: boolean; hydrateDatasetFields?: boolean }
+) => {
+  if (!data) return null
+  const { x, y } = resolveCanvasPosition(position)
+  const fetchFields = options?.fetchFields !== false
+  const hydrateDatasetFields = options?.hydrateDatasetFields === true
+
+  if (data.type === 'operation') {
+    const newNode: any =
+      data.operationType === 'mirror'
+        ? {
+            id: guid(),
+            tableName: data.tableName || data.name || 'Mirror',
+            type: 'mirror',
+            datasourceId: '',
+            info: JSON.stringify({ operationType: 'mirror' }),
+            currentDsFields: [],
+            operationConfig: {},
+            x,
+            y,
+            sourceNodeId: ''
+          }
+        : {
+            id: guid(),
+            tableName: data.tableName || data.name,
+            type: 'operation',
+            operationType: data.operationType,
+            datasourceId: '',
+            info: JSON.stringify({ table: data.tableName, operationType: data.operationType }),
+            currentDsFields: [],
+            operationConfig: data.operationConfig || {},
+            x,
+            y
+          }
+    nodes.push(newNode)
+    emits('changeUpdate')
+    emits('addComplete')
+    return newNode
+  }
+
+  if (data.type === 'sql') {
+    const newNode: any = {
+      id: guid(),
+      tableName: data.tableName || 'Custom SQL',
+      type: 'sql',
+      datasourceId: data.datasourceId,
+      info: JSON.stringify({ table: data.tableName, sql: data.sql || '' }),
+      currentDsFields: [],
+      sqlVariableDetails: data.sqlVariableDetails || null,
+      x,
+      y
+    }
+    nodes.push(newNode)
+    emits('changeUpdate')
+    if (fetchFields) {
+      try {
+        const fields = (await getTableField({
+          datasourceId: data.datasourceId,
+          id: newNode.id,
+          info: newNode.info,
+          tableName: newNode.tableName,
+          type: 'sql'
+        })) as unknown as Field[]
+        ;(fields || []).forEach(f => (f.checked = true))
+        newNode.currentDsFields = cloneDeep(fields || [])
+      } catch (e) {
+        ElMessage.error(
+          e?.message?.includes('timeout')
+            ? '加载 SQL 字段超时，请稍后重试。'
+            : '加载 SQL 字段失败。'
+        )
+      }
+    }
+    emits('addComplete')
+    emits('updateAllfields')
+    return newNode
+  }
+
+  if (data.type === 'dataset') {
+    const newNode: any = {
+      id: guid(),
+      tableName: data.tableName || data.name,
+      type: 'dataset',
+      datasourceId: data.datasourceId || '',
+      info: JSON.stringify({
+        datasetId: data.datasetId,
+        reference: true,
+        table: data.tableName || data.name,
+        datasourceId: data.datasourceId || ''
+      }),
+      currentDsFields: [],
+      noteName: data.name,
+      x,
+      y,
+      datasetId: data.datasetId
+    }
+    nodes.push(newNode)
+    emits('changeUpdate')
+    emits('addComplete')
+    if (hydrateDatasetFields && data.datasetId) {
+      emits('load-dataset-fields', { node: newNode, datasetId: data.datasetId })
+    }
+    return newNode
+  }
+
+  const newNode: any = {
+    id: guid(),
+    tableName: data.tableName,
+    type: data.type || 'db',
+    datasourceId: data.datasourceId,
+    info: JSON.stringify({ table: data.tableName, sql: data.sql || '' }),
+    currentDsFields: [],
+    noteName: data.name,
+    x,
+    y
+  }
+  nodes.push(newNode)
+  emits('changeUpdate')
+  if (fetchFields) {
+    try {
+      const fields = (await getTableField({
+        datasourceId: data.datasourceId,
+        id: newNode.id,
+        info: newNode.info,
+        tableName: data.tableName,
+        type: data.type || 'db'
+      })) as unknown as Field[]
+      if (!fields?.length) {
+        ElMessage.warning('该数据表未返回字段信息。')
+      }
+      ;(fields || []).forEach(f => (f.checked = true))
+      newNode.currentDsFields = cloneDeep(fields || [])
+    } catch (e) {
+      ElMessage.error(
+        e?.message?.includes('timeout')
+          ? '加载表字段超时，请稍后重试。'
+          : '加载表字段失败。'
+      )
+    }
+  }
+  emits('addComplete')
+  emits('updateAllfields')
+  return newNode
+}
+
+const connectNodes = (
+  sourceId: string,
+  targetId: string,
+  options?: { clearTargetIncoming?: boolean }
+) => {
+  if (!sourceId || !targetId || sourceId === targetId) return false
+  const sourceNode = nodes.find(n => n.id === sourceId)
+  const targetNode = nodes.find(n => n.id === targetId)
+  if (!sourceNode || !targetNode) return false
+
+  if (options?.clearTargetIncoming) {
+    for (let i = edges.length - 1; i >= 0; i--) {
+      if (edges[i].targetId === targetId) {
+        edges.splice(i, 1)
+      }
+    }
+  }
+
+  if (edges.some(e => e.sourceId === sourceId && e.targetId === targetId)) return true
+  if (!isInputPortVisible(targetNode)) return false
+
+  const isJoinOperation = targetNode.type === 'operation' && (targetNode as any).operationType === 'join'
+  const isUnionOperation = targetNode.type === 'operation' && (targetNode as any).operationType === 'union'
+  const isMirrorNode = targetNode.type === 'mirror'
+  const isSingleInputOperation =
+    targetNode.type === 'operation' &&
+    ['deduplicate', 'sort', 'transform', 'sample', 'pivot', 'unpivot', 'group', 'selfloop'].includes(
+      String((targetNode as any).operationType || '')
+    )
+
+  const existingIncoming = edges.filter(e => e.targetId === targetId)
+  if (isJoinOperation || isUnionOperation) {
+    if (existingIncoming.length >= 2) return false
+  } else if (!isMirrorNode) {
+    if ((isSingleInputOperation || targetNode.type === 'result') && existingIncoming.length >= 1) return false
+  }
+
+  if (isMirrorNode) {
+    ;(targetNode as any).sourceNodeId = sourceNode.id
+  }
+
+  edges.push({ id: guid(), sourceId, targetId })
+  emits('changeUpdate')
+  emits('addComplete')
+  return true
+}
+
+const findNodeField = (node: FlowNode, fieldName: string) => {
+  const normalizeFieldMatcher = (value: any) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[`"'[\]]/g, '')
+  const matchers = [fieldName]
+    .map(v => normalizeFieldMatcher(v))
+    .filter(Boolean)
+  return (node.currentDsFields || []).find((field: any) =>
+    matchers.some(
+      key =>
+        normalizeFieldMatcher(field?.originName) === key ||
+        normalizeFieldMatcher(field?.name) === key ||
+        normalizeFieldMatcher(field?.dataeaseName) === key ||
+        normalizeFieldMatcher(field?.fieldShortName) === key ||
+        normalizeFieldMatcher(field?.id) === key
+    )
+  )
+}
+
+const resolveMappingFieldName = (mapping: Record<string, any> | undefined, side: 'left' | 'right') => {
+  if (!mapping || typeof mapping !== 'object') return ''
+  const pickValue = (raw: any) => {
+    if (raw === null || raw === undefined) return ''
+    if (typeof raw === 'string' || typeof raw === 'number') return String(raw)
+    if (typeof raw === 'object') {
+      return String(raw.originName || raw.name || raw.dataeaseName || raw.fieldShortName || raw.id || '')
+    }
+    return ''
+  }
+  const leftCandidates = [
+    mapping.leftField,
+    mapping.left,
+    mapping.leftColumn,
+    mapping.left_column,
+    mapping.left_field,
+    mapping.sourceField,
+    mapping.source_field,
+    mapping.fromField,
+    mapping.parentField
+  ]
+  const rightCandidates = [
+    mapping.rightField,
+    mapping.right,
+    mapping.rightColumn,
+    mapping.right_column,
+    mapping.right_field,
+    mapping.targetField,
+    mapping.target_field,
+    mapping.toField,
+    mapping.currentField
+  ]
+  const candidates = side === 'left' ? leftCandidates : rightCandidates
+  for (const candidate of candidates) {
+    const normalized = pickValue(candidate).trim()
+    if (normalized) return normalized
+  }
+  return ''
+}
+
+const normalizeJoinType = (joinType: any) => {
+  const raw = String(joinType || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]/g, '')
+    .replace(/\s+/g, '')
+  if (!raw) return 'left'
+  if (raw.includes('left')) return 'left'
+  if (raw.includes('right')) return 'right'
+  if (raw.includes('inner')) return 'inner'
+  if (raw.includes('full')) return 'full'
+  return 'left'
+}
+
+const applyJoinConfig = (payload: {
+  leftNodeId: string
+  rightNodeId: string
+  joinType?: string
+  mappings?: Array<Record<string, any>>
+}) => {
+  const leftNode = nodes.find(n => n.id === payload?.leftNodeId)
+  const rightNode = nodes.find(n => n.id === payload?.rightNodeId)
+  if (!leftNode || !rightNode) return false
+
+  const unionFields = (payload?.mappings || [])
+    .map(mapping => {
+      const leftFieldName = resolveMappingFieldName(mapping, 'left')
+      const rightFieldName = resolveMappingFieldName(mapping, 'right')
+      const parentField = findNodeField(leftNode, leftFieldName)
+      const currentField = findNodeField(rightNode, rightFieldName)
+      if (!parentField || !currentField) return null
+      return {
+        parentField: cloneDeep(parentField),
+        currentField: cloneDeep(currentField)
+      }
+    })
+    .filter(Boolean) as Array<Record<string, any>>
+
+  if (!unionFields.length) return false
+
+  ;(rightNode as any).unionType = normalizeJoinType(payload?.joinType)
+  ;(rightNode as any).unionFields = unionFields
+  emits('changeUpdate')
+  emits('updateAllfields')
+  return true
+}
+
 // ========== Drop Handler ==========
 const handleDrop = (ev: DragEvent) => {
   ev.preventDefault()
@@ -1342,7 +1661,11 @@ defineExpose({
   getGraphState,
   getLastAddedNode,
   getMirrorSourceNode,
-  openJoinEditorByNodeId
+  openJoinEditorByNodeId,
+  addNodeByPayload,
+  connectNodes,
+  getCanvasNode,
+  applyJoinConfig
 })
 </script>
 

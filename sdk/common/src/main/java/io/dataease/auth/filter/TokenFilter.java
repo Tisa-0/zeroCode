@@ -32,7 +32,8 @@ public class TokenFilter implements Filter {
                 "/datasetTree",
                 "/datasetData",
                 "/datasetField",
-                "/embedded"
+                "/embedded",
+                "/copilot"
         );
     }
 
