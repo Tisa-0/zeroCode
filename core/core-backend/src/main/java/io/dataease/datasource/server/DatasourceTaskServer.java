@@ -13,7 +13,7 @@ import io.dataease.datasource.dto.CoreDatasourceTaskDTO;
 import io.dataease.datasource.dao.ext.mapper.ExtDatasourceTaskMapper;
 import io.dataease.datasource.manage.DatasourceSyncManage;
 import io.dataease.utils.IDUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;

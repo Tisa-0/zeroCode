@@ -5,7 +5,7 @@ import io.dataease.api.dataset.dto.SqlLogDTO;
 import io.dataease.dataset.dao.auto.entity.CoreDatasetTableSqlLog;
 import io.dataease.dataset.dao.auto.mapper.CoreDatasetTableSqlLogMapper;
 import io.dataease.utils.BeanUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;

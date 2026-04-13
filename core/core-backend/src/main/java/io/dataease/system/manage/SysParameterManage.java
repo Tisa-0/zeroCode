@@ -11,7 +11,7 @@ import io.dataease.utils.BeanUtils;
 import io.dataease.utils.CommonBeanFactory;
 import io.dataease.utils.IDUtils;
 import io.dataease.utils.SystemSettingUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -93,7 +93,7 @@ public class SysParameterManage {
 
     @XpackInteract(value = "perSetting")
     public List<SettingItemVO> convert(List<CoreSysSetting> sysSettings) {
-        return sysSettings.stream().sorted(Comparator.comparing(CoreSysSetting::getSort)).map(item -> BeanUtils.copyBean(new SettingItemVO(), item)).toList();
+        return sysSettings.stream().sorted(Comparator.comparing(CoreSysSetting::getSort)).map(item -> BeanUtils.copyBean(new SettingItemVO(), item)).collect(Collectors.toList());
     }
 
     @XpackInteract(value = "perSetting", replace = true)

@@ -4,17 +4,12 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
-
-import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 
 @Schema(description = "业务资源结点")
 @Data
 public class BusiNodeVO implements TreeResultModel<BusiNodeVO>, Serializable {
-
-
-    @Serial
     private static final long serialVersionUID = 8191619596741217494L;
 
     @JsonSerialize(using = ToStringSerializer.class)

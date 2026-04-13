@@ -11,16 +11,15 @@ import io.dataease.plugins.factory.DataEasePluginFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class PluginsChartFactory {
 
     private static final Map<String, DataEaseChartPlugin> templateMap = new ConcurrentHashMap<>();
 
-
     public static AbstractChartPlugin getInstance(String render, String type) {
         if (!LicenseUtil.licenseValid()) DEException.throwException("插件功能只对企业版本可用！");
-        String key = render + "_" + type;
-        return templateMap.get(key);
+        return templateMap.get(render + "_" + type);
     }
 
     public static void loadPlugin(String render, String type, DataEaseChartPlugin plugin) {
@@ -39,6 +38,7 @@ public class PluginsChartFactory {
 
     public static List<XpackPluginsViewVO> getViewConfigList() {
         if (!LicenseUtil.licenseValid()) DEException.throwException("插件功能只对企业版本可用！");
-        return templateMap.values().stream().map(DataEaseChartPlugin::getConfig).toList();
+        return templateMap.values().stream().map(DataEaseChartPlugin::getConfig).collect(Collectors.toList());
     }
 }
+

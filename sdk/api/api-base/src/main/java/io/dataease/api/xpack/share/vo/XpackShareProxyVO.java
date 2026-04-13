@@ -6,8 +6,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.io.Serial;
 import java.io.Serializable;
 
 @Schema(description = "分享代理信息VO")
@@ -15,7 +13,6 @@ import java.io.Serializable;
 @AllArgsConstructor
 @NoArgsConstructor
 public class XpackShareProxyVO implements Serializable {
-    @Serial
     private static final long serialVersionUID = 6520351268758198483L;
 
     @Schema(description = "资源ID")

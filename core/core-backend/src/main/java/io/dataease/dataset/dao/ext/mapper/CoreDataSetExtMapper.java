@@ -13,10 +13,7 @@ import java.util.List;
 @Mapper
 public interface CoreDataSetExtMapper {
 
-    @Select("""
-            select id, name, node_type, pid from core_dataset_group
-            ${ew.customSqlSegment}
-            """)
+    @Select("select id, name, node_type, pid from core_dataset_group ${ew.customSqlSegment}")
     List<DataSetNodePO> query(@Param("ew") QueryWrapper queryWrapper);
 
     @Select("select id, name, node_type, create_by, create_time, update_by, last_update_time from core_dataset_group where id = #{id}")

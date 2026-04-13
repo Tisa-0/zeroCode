@@ -1,7 +1,7 @@
 package io.dataease.auth.interceptor;
 
 import io.dataease.constant.AuthConstant;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,7 +29,9 @@ public class CorsConfig implements WebMvcConfigurer {
 
     @Override
     public void configurePathMatch(PathMatchConfigurer configurer) {
-        configurer.addPathPrefix(AuthConstant.DE_API_PREFIX, c -> c.isAnnotationPresent(RestController.class) && c.getPackageName().startsWith("io.dataease"));
+        configurer.addPathPrefix(AuthConstant.DE_API_PREFIX, c -> c.isAnnotationPresent(RestController.class)
+                && c.getPackage() != null
+                && c.getPackage().getName().startsWith("io.dataease"));
     }
 
     @Override

@@ -8,7 +8,7 @@ import io.dataease.datasource.provider.CalciteProvider;
 import io.dataease.extensions.datasource.dto.DatasourceDTO;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.IDUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;

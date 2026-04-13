@@ -1,7 +1,7 @@
 package io.dataease.datasource.provider;
 
 import io.dataease.utils.CommonBeanFactory;
-import io.micrometer.common.util.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 public class ProviderUtil {
 

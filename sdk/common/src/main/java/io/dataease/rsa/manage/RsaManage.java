@@ -5,7 +5,7 @@ import io.dataease.rsa.dao.entity.CoreRsa;
 import io.dataease.rsa.dao.mapper.CoreRsaMapper;
 import io.dataease.utils.CommonBeanFactory;
 import io.dataease.utils.RsaUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;

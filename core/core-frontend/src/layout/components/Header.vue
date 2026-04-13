@@ -169,7 +169,7 @@ onMounted(() => {
   overflow: hidden;
   cursor: pointer;
   &:hover {
-    background-color: #1e2738;
+    background-color: rgba(95, 155, 243, 0.18);
   }
   &.is-light-setting {
     &:hover {
@@ -193,7 +193,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   height: 56px;
-  background-color: #050e21;
+  background: linear-gradient(180deg, #f7fbff 0%, #edf5ff 100%);
+  border-bottom: 1px solid #dbe8ff;
+  box-shadow: 0 8px 18px rgba(73, 132, 226, 0.08);
   padding: 0 24px;
   .operate-setting {
     margin-left: auto;
@@ -205,7 +207,7 @@ onMounted(() => {
   }
 
   .ed-menu {
-    background-color: #050e21;
+    background-color: transparent;
     height: 56px;
   }
 
@@ -213,28 +215,29 @@ onMounted(() => {
     border: none;
     .ed-menu-item,
     :deep(.ed-sub-menu__title) {
-      color: rgba(255, 255, 255, 0.8);
+      color: #3b4f6d;
       line-height: 50px;
       border-bottom: none;
+      font-weight: 500;
 
       &.is-active {
         border-bottom: none;
-        color: #ffffff !important;
-        background-color: var(--ed-color-primary);
+        color: #1f3d6b !important;
+        background: linear-gradient(180deg, #d9e9ff 0%, #c5deff 100%);
       }
     }
 
     > .is-active {
       :deep(.ed-sub-menu__title) {
-        color: #ffffff !important;
-        background-color: var(--ed-color-primary);
+        color: #1f3d6b !important;
+        background: linear-gradient(180deg, #d9e9ff 0%, #c5deff 100%);
       }
     }
 
     .ed-menu-item:not(.is-disabled):hover,
     :deep(.ed-sub-menu__title):not(.is-disabled):hover {
-      color: #ffffffcc;
-      background: #ffffff1a;
+      color: #1f3d6b;
+      background: rgba(95, 155, 243, 0.16);
     }
   }
 }
@@ -268,7 +271,7 @@ onMounted(() => {
   width: 134px;
   height: 34px;
   margin-right: 48px;
-  color: #ffffff;
+  color: #2f72dd;
 }
 </style>
 
@@ -277,7 +280,7 @@ onMounted(() => {
   .operate-setting {
     .ed-icon {
       cursor: pointer;
-      color: rgba(255, 255, 255, 0.8);
+      color: #3b5d90;
       font-size: 18px;
     }
   }

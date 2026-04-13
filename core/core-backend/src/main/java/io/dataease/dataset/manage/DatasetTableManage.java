@@ -8,7 +8,7 @@ import io.dataease.extensions.datasource.dto.DatasetTableDTO;
 import io.dataease.i18n.Translator;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.IDUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;

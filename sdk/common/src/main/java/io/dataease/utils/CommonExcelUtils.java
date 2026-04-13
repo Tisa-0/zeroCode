@@ -8,8 +8,8 @@ import com.alibaba.excel.write.metadata.style.WriteFont;
 import com.alibaba.excel.write.style.HorizontalCellStyleStrategy;
 import io.dataease.model.excel.AutoAdaptWidthStyleStrategy;
 import io.dataease.model.excel.ErrWriteHandler;
-import jakarta.servlet.ServletOutputStream;
-import jakarta.servlet.http.HttpServletResponse;
+import javax.servlet.ServletOutputStream;
+import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.poi.ss.usermodel.IndexedColors;
 

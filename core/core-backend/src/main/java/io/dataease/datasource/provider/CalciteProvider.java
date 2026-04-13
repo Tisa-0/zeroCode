@@ -20,8 +20,8 @@ import io.dataease.utils.BeanUtils;
 import io.dataease.utils.CommonBeanFactory;
 import io.dataease.utils.JsonUtil;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.Resource;
+import javax.annotation.PostConstruct;
+import javax.annotation.Resource;
 import org.apache.calcite.adapter.jdbc.JdbcSchema;
 import org.apache.calcite.jdbc.CalciteConnection;
 import org.apache.calcite.schema.Schema;
@@ -1176,7 +1176,7 @@ public class CalciteProvider extends Provider {
         BeanUtils.copyBean(datasourceSchemaDTO, datasourceDTO);
         datasourceSchemaDTO.setSchemaAlias(String.format(SQLConstants.SCHEMA, datasourceSchemaDTO.getId()));
         DatasourceRequest datasourceRequest = new DatasourceRequest();
-        datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
+        datasourceRequest.setDsList(Collections.singletonMap(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
         try {
             CalciteConnection calciteConnection = connection.unwrap(CalciteConnection.class);
             SchemaPlus rootSchema = buildSchema(datasourceRequest, calciteConnection);
@@ -1190,7 +1190,7 @@ public class CalciteProvider extends Provider {
         BeanUtils.copyBean(datasourceSchemaDTO, datasourceDTO);
         datasourceSchemaDTO.setSchemaAlias(String.format(SQLConstants.SCHEMA, datasourceSchemaDTO.getId()));
         DatasourceRequest datasourceRequest = new DatasourceRequest();
-        datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
+        datasourceRequest.setDsList(Collections.singletonMap(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
         try {
             CalciteConnection calciteConnection = connection.unwrap(CalciteConnection.class);
             SchemaPlus rootSchema = calciteConnection.getRootSchema();

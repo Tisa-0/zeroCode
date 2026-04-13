@@ -31,7 +31,7 @@ import io.dataease.model.BusiNodeVO;
 import io.dataease.operation.manage.CoreOptRecentManage;
 import io.dataease.system.manage.CoreUserManage;
 import io.dataease.utils.*;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -233,7 +233,7 @@ public class DatasetGroupManage {
         List<DataSetNodePO> pos = coreDataSetExtMapper.query(queryWrapper);
         List<DataSetNodeBO> nodes = new ArrayList<>();
         if (ObjectUtils.isEmpty(request.getLeaf()) || !request.getLeaf()) nodes.add(rootNode());
-        List<DataSetNodeBO> bos = pos.stream().map(this::convert).toList();
+        List<DataSetNodeBO> bos = pos.stream().map(this::convert).collect(Collectors.toList());
         if (CollectionUtils.isNotEmpty(bos)) {
             nodes.addAll(bos);
         }
@@ -557,14 +557,16 @@ public class DatasetGroupManage {
         if (StringUtils.isEmpty(info)) return;
         String trimmed = info.trim();
         if (trimmed.startsWith("[")) {
-            dto.setUnion(JsonUtil.parseList(info, new TypeReference<>() {}));
+            dto.setUnion(JsonUtil.parseList(info, new TypeReference<List<UnionDTO>>() {
+            }));
             dto.setSortFields(null);
             logger.info("[applyDatasetInfo] legacy array format, no graphState");
         } else if (trimmed.startsWith("{")) {
             @SuppressWarnings("unchecked")
             Map<String, Object> infoMap = JsonUtil.parseObject(info, Map.class);
             if (infoMap != null) {
-                dto.setUnion(JsonUtil.parseList((String) JsonUtil.toJSONString(infoMap.get("union")), new TypeReference<>() {}));
+                dto.setUnion(JsonUtil.parseList((String) JsonUtil.toJSONString(infoMap.get("union")), new TypeReference<List<UnionDTO>>() {
+                }));
                 Object sf = infoMap.get("sortFields");
                 dto.setSortFields(sf != null ? JsonUtil.parseList((String) JsonUtil.toJSONString(sf), new TypeReference<List<io.dataease.api.chart.dto.DeSortField>>() {}) : null);
                 Object graph = infoMap.get("graphState");
@@ -590,16 +592,16 @@ public class DatasetGroupManage {
     }
 
     public List<DatasetTableDTO> getDetailWithPerm(List<Long> ids) {
-        var result = new ArrayList<DatasetTableDTO>();
+        List<DatasetTableDTO> result = new ArrayList<>();
         if (CollectionUtils.isNotEmpty(ids)) {
-            var dsList = coreDatasetGroupMapper.selectBatchIds(ids);
+            List<CoreDatasetGroup> dsList = coreDatasetGroupMapper.selectBatchIds(ids);
             if (CollectionUtils.isNotEmpty(dsList)) {
                 dsList.forEach(ds -> {
                     DatasetTableDTO dto = new DatasetTableDTO();
                     BeanUtils.copyBean(dto, ds);
-                    var fields = datasetTableFieldManage.listFieldsWithPermissions(ds.getId());
-                    List<DatasetTableFieldDTO> dimensionList = fields.stream().filter(ele -> StringUtils.equalsIgnoreCase(ele.getGroupType(), "d")).toList();
-                    List<DatasetTableFieldDTO> quotaList = fields.stream().filter(ele -> StringUtils.equalsIgnoreCase(ele.getGroupType(), "q")).toList();
+                    List<DatasetTableFieldDTO> fields = datasetTableFieldManage.listFieldsWithPermissions(ds.getId());
+                    List<DatasetTableFieldDTO> dimensionList = fields.stream().filter(ele -> StringUtils.equalsIgnoreCase(ele.getGroupType(), "d")).collect(Collectors.toList());
+                    List<DatasetTableFieldDTO> quotaList = fields.stream().filter(ele -> StringUtils.equalsIgnoreCase(ele.getGroupType(), "q")).collect(Collectors.toList());
                     Map<String, List<DatasetTableFieldDTO>> map = new LinkedHashMap<>();
                     map.put("dimensionList", dimensionList);
                     map.put("quotaList", quotaList);

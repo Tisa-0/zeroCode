@@ -2,13 +2,11 @@ package io.dataease.extensions.view.vo;
 
 import lombok.Data;
 
-import java.io.Serial;
 import java.io.Serializable;
 import java.util.Map;
 
 @Data
 public class XpackPluginsViewVO implements Serializable {
-    @Serial
     private static final long serialVersionUID = 5059944608544058565L;
 
     private Long id;

@@ -2,7 +2,7 @@ package io.dataease.traffic.starter;
 
 import io.dataease.traffic.dao.mapper.CoreApiTrafficMapper;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;

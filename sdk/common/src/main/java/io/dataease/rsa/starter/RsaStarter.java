@@ -2,7 +2,7 @@ package io.dataease.rsa.starter;
 
 import io.dataease.rsa.manage.RsaManage;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;

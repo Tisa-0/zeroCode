@@ -4,16 +4,12 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.dataease.api.permissions.variable.dto.SysVariableValueItem;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
-
-import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 
 @Schema(description = "用户构造器")
 @Data
 public class UserCreator implements Serializable {
-
-    @Serial
     private static final long serialVersionUID = 5231186463604221044L;
     @Schema(description = "名称", requiredMode = Schema.RequiredMode.REQUIRED)
     private String name;

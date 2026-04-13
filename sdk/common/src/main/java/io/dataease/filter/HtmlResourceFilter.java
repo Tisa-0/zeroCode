@@ -2,15 +2,16 @@ package io.dataease.filter;
 
 import io.dataease.result.ResultMessage;
 import io.dataease.utils.JsonUtil;
-import jakarta.servlet.*;
-import jakarta.servlet.FilterConfig;
-import jakarta.servlet.http.HttpServletResponse;
+import javax.servlet.*;
+import javax.servlet.FilterConfig;
+import javax.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 @Component
 public class HtmlResourceFilter implements Filter, Ordered {
@@ -40,11 +41,21 @@ public class HtmlResourceFilter implements Filter, Ordered {
         // 继续执行过滤器链
         try {
             filterChain.doFilter(servletRequest, httpResponse);
-        }catch (Exception e){
+        } catch (Exception e) {
+            if (httpResponse.isCommitted()) {
+                throw e;
+            }
+            try {
+                httpResponse.resetBuffer();
+            } catch (IllegalStateException ignore) {
+                throw e;
+            }
             httpResponse.setContentType("application/json");
             httpResponse.setCharacterEncoding("UTF-8");
             httpResponse.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            httpResponse.getWriter().write(JsonUtil.toJSONString(new ResultMessage(HttpServletResponse.SC_BAD_REQUEST,e.getMessage())).toString());
+            String body = String.valueOf(JsonUtil.toJSONString(new ResultMessage(HttpServletResponse.SC_BAD_REQUEST, e.getMessage())));
+            httpResponse.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+            httpResponse.getOutputStream().flush();
         }
     }
 

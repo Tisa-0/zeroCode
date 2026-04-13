@@ -4,14 +4,11 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
-
-import java.io.Serial;
 import java.io.Serializable;
 
 @Schema(description = "认证列表VO")
 @Data
 public class XpackAuthenticationVO implements Serializable {
-    @Serial
     private static final long serialVersionUID = -1744424881280545811L;
 
     @Schema(description = "ID")

@@ -49,7 +49,7 @@ import io.dataease.model.BusiNodeVO;
 import io.dataease.system.dao.auto.entity.CoreSysSetting;
 import io.dataease.system.manage.CoreUserManage;
 import io.dataease.utils.*;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -751,7 +751,7 @@ public class DatasourceServer implements DatasourceApi {
             DatasourceSchemaDTO datasourceSchemaDTO = new DatasourceSchemaDTO();
             BeanUtils.copyBean(datasourceSchemaDTO, engineManage.getDeEngine());
             datasourceSchemaDTO.setSchemaAlias(String.format(SQLConstants.SCHEMA, datasourceSchemaDTO.getId()));
-            datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
+            datasourceRequest.setDsList(Collections.singletonMap(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
             datasourceRequest.setQuery(TableUtils.tableName2Sql(datasourceSchemaDTO, tableName) + " LIMIT 0 OFFSET 0");
             datasourceRequest.setTable(tableName);
             Provider provider = ProviderFactory.getProvider(datasourceSchemaDTO.getType());
@@ -764,7 +764,7 @@ public class DatasourceServer implements DatasourceApi {
         DatasourceSchemaDTO datasourceSchemaDTO = new DatasourceSchemaDTO();
         BeanUtils.copyBean(datasourceSchemaDTO, coreDatasource);
         datasourceSchemaDTO.setSchemaAlias(String.format(SQLConstants.SCHEMA, datasourceSchemaDTO.getId()));
-        datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
+        datasourceRequest.setDsList(Collections.singletonMap(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
         datasourceRequest.setQuery(TableUtils.tableName2Sql(datasourceSchemaDTO, tableName) + " LIMIT 0 OFFSET 0");
         datasourceRequest.setTable(tableName);
         Provider provider = ProviderFactory.getProvider(datasourceSchemaDTO.getType());

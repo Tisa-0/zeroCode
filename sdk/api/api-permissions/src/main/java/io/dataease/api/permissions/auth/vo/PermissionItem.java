@@ -6,15 +6,11 @@ import io.dataease.api.permissions.dataset.dto.DataSetColumnPermissionsDTO;
 import io.dataease.api.permissions.dataset.dto.DataSetRowPermissionsTreeDTO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
-
-import java.io.Serial;
 import java.io.Serializable;
 
 @Schema(description = "权限项")
 @Data
 public class PermissionItem implements Serializable {
-
-    @Serial
     private static final long serialVersionUID = -6537851979745319692L;
     @JsonSerialize(using= ToStringSerializer.class)
     @Schema(description = "ID")

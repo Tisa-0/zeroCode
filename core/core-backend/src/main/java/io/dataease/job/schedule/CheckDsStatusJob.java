@@ -4,7 +4,7 @@ package io.dataease.job.schedule;
 import io.dataease.datasource.server.DatasourceServer;
 import io.dataease.utils.CommonBeanFactory;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.quartz.Job;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;

@@ -2989,7 +2989,7 @@ const datasetPreview = async () => {
       resultInput &&
       (resultInput as any).type === 'operation' &&
       // 缁撴灉闆嗙洿鎺ヨ繛鍒版搷浣滆妭鐐规椂锛氱粺涓€鐢卞悗绔繑鍥炴搷浣滃悗鐨勬渶缁堥瑙?
-      ['union', 'deduplicate', 'sample', 'group'].includes((resultInput as any).operationType)
+      ['union', 'deduplicate', 'sample', 'group', 'sort', 'transform', 'pivot', 'unpivot', 'selfloop', 'mirror'].includes((resultInput as any).operationType)
     ) {
       effectiveNode = resultInput
     } else {
@@ -3261,7 +3261,7 @@ const datasetPreview = async () => {
   const previewNodeIdForRequest =
     effectiveNode &&
     (effectiveNode as any).type === 'operation' &&
-    ['union', 'sample', 'deduplicate', 'group'].includes((effectiveNode as any).operationType)
+    ['union', 'sample', 'deduplicate', 'group', 'sort', 'transform', 'pivot', 'unpivot', 'selfloop', 'mirror'].includes((effectiveNode as any).operationType)
       ? (effectiveNode as any).id
       : undefined
 

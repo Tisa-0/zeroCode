@@ -3,7 +3,7 @@ package io.dataease.i18n;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.JsonUtil;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -113,7 +113,7 @@ public class Translator {
             }
 
             Class<?> objectClass = javaObject.getClass();
-            String packageName = objectClass.getPackageName();
+            String packageName = objectClass.getPackage() != null ? objectClass.getPackage().getName() : "";
             if (StringUtils.startsWith(packageName, "io.dataease")) {
                 try {
                     Field[] declaredFields = objectClass.getDeclaredFields();

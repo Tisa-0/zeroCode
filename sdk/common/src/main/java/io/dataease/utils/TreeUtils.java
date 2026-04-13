@@ -27,7 +27,7 @@ public class TreeUtils {
                 rootExist.set(true);
             }
             return treeModel;
-        }).toList();
+        }).collect(Collectors.toList());
         List<TreeModel> modelResult = new ArrayList<>();
         Map<Long, List<TreeModel>> childMap = modelList.stream().collect(Collectors.groupingBy(TreeModel::getPid));
         List<Long> existedList = new ArrayList<>();
@@ -35,15 +35,15 @@ public class TreeUtils {
             List<TreeModel> children = null;
             if (CollectionUtils.isNotEmpty(children = childMap.get(po.getId()))) {
                 po.setChildren(children);
-                existedList.addAll(children.stream().map(TreeModel::getId).toList());
+                existedList.addAll(children.stream().map(TreeModel::getId).collect(Collectors.toList()));
             }
         });
         if (CollectionUtils.isEmpty(modelList)) {
             return null;
         }
-        List<TreeModel> floatingList = modelList.stream().filter(node -> !isRoot(node) && !existedList.contains(node.getId())).toList();
+        List<TreeModel> floatingList = modelList.stream().filter(node -> !isRoot(node) && !existedList.contains(node.getId())).collect(Collectors.toList());
         if (CollectionUtils.isNotEmpty(existedList)) {
-            modelResult = modelList.stream().filter(node -> !existedList.contains(node.getId())).toList();
+            modelResult = modelList.stream().filter(node -> !existedList.contains(node.getId())).collect(Collectors.toList());
         } else {
             modelResult = modelList;
         }

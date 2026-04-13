@@ -4,14 +4,11 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.dataease.extensions.datasource.dto.DatasourceDTO;
 import lombok.Data;
-
-import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 
 @Data
 public class DataSetBarVO implements Serializable {
-    @Serial
     private static final long serialVersionUID = 7791029875759340927L;
 
     @JsonSerialize(using = ToStringSerializer.class)

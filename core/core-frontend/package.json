@@ -2,11 +2,15 @@
   "name": "dataease",
   "private": true,
   "version": "0.0.0",
+  "engines": {
+    "node": ">=18.20.4 <19",
+    "npm": ">=10 <11"
+  },
   "scripts": {
     "dev": "vite --mode dev --host 0.0.0.0",
     "ts:check": "vue-tsc --noEmit",
-    "build:base": "NODE_OPTIONS=--max_old_space_size=4096 vite build --mode base",
-    "build:distributed": "NODE_OPTIONS=--max_old_space_size=4096 vite build --mode distributed",
+    "build:base": "cross-env NODE_OPTIONS=--max_old_space_size=4096 vite build --mode base",
+    "build:distributed": "cross-env NODE_OPTIONS=--max_old_space_size=4096 vite build --mode distributed",
     "build:lib": "vite build --mode lib",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix",
     "lint:stylelint": "stylelint --fix \"**/*.{vue,less,postcss,css,scss}\" --cache --cache-location node_modules/.cache/stylelint/",
@@ -52,7 +56,7 @@
     "tinymce": "^5.8.2",
     "vant": "^4.8.3",
     "video.js": "^7.21.6",
-    "vue": "^3.3.4",
+    "vue": "3.3.4",
     "vue-clipboard3": "^2.0.0",
     "vue-codemirror": "^6.1.1",
     "vue-draggable-next": "^2.2.1",
@@ -78,6 +82,7 @@
     "@vitejs/plugin-vue-jsx": "^3.0.1",
     "autoprefixer": "^10.4.13",
     "consola": "^2.15.3",
+    "cross-env": "^7.0.3",
     "eslint": "^7.32.0",
     "eslint-config-prettier": "^8.6.0",
     "eslint-plugin-prettier": "^4.2.1",
@@ -114,6 +119,14 @@
   "overrides": {
     "@intlify/shared": "9.14.4",
     "@intlify/core-base": "9.14.4",
-    "@intlify/message-compiler": "9.14.4"
+    "@intlify/message-compiler": "9.14.4",
+    "@types/node": "18.19.130",
+    "vue": "3.3.4",
+    "@vue/runtime-core": "3.3.4",
+    "@vue/runtime-dom": "3.3.4",
+    "@vue/reactivity": "3.3.4",
+    "@vue/shared": "3.3.4",
+    "@vue/compiler-sfc": "3.3.4",
+    "csstype": "2.6.21"
   }
 }

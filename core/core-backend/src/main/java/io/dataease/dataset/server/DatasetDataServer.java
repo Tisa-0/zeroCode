@@ -10,7 +10,7 @@ import io.dataease.dataset.manage.DatasetDataManage;
 import io.dataease.extensions.datasource.dto.DatasetTableDTO;
 import io.dataease.extensions.datasource.dto.DatasetTableFieldDTO;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 

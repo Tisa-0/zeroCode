@@ -5,15 +5,12 @@ import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.io.Serial;
 import java.io.Serializable;
 
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 public class PluginVO implements Serializable {
-    @Serial
     private static final long serialVersionUID = -3889122930435272191L;
 
     @JsonSerialize(using= ToStringSerializer.class)

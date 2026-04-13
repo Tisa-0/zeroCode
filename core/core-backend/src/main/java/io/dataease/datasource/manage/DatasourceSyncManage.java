@@ -24,7 +24,7 @@ import io.dataease.job.schedule.ExtractDataJob;
 import io.dataease.job.schedule.ScheduleManager;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.StringUtils;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobKey;

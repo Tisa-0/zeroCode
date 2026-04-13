@@ -30,6 +30,8 @@ import io.dataease.extensions.datasource.dto.*;
 import io.dataease.extensions.datasource.factory.ProviderFactory;
 import io.dataease.extensions.datasource.model.SQLMeta;
 import io.dataease.extensions.datasource.provider.Provider;
+import io.dataease.independent.arrange.model.ArrangeFieldMeta;
+import io.dataease.independent.arrange.service.ArrangeOperationService;
 import io.dataease.extensions.view.dto.ChartExtFilterDTO;
 import io.dataease.extensions.view.dto.ChartExtRequest;
 import io.dataease.extensions.view.dto.ColumnPermissionItem;
@@ -39,7 +41,7 @@ import io.dataease.utils.AuthUtils;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.JsonUtil;
 import io.dataease.utils.TreeUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -71,12 +73,14 @@ public class DatasetDataManage {
     private PermissionManage permissionManage;
     @Resource
     private DatasetTableSqlLogManage datasetTableSqlLogManage;
+    @Resource
+    private ArrangeOperationService arrangeOperationService;
     @Autowired(required = false)
     private PluginManageApi pluginManage;
 
     private static Logger logger = LoggerFactory.getLogger(DatasetDataManage.class);
 
-    private static final List<String> notFullDs = List.of("mysql", "mariadb", "Excel", "API");
+    private static final List<String> notFullDs = Arrays.asList("mysql", "mariadb", "Excel", "API");
 
     public List<DatasetTableFieldDTO> getTableFields(DatasetTableDTO datasetTableDTO) throws Exception {
         List<DatasetTableFieldDTO> list = null;
@@ -104,7 +108,7 @@ public class DatasetDataManage {
             Provider provider = ProviderFactory.getProvider(coreDatasource.getType());
 
             DatasourceRequest datasourceRequest = new DatasourceRequest();
-            datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
+            datasourceRequest.setDsList(Collections.singletonMap(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
             String sql;
             if (StringUtils.equalsIgnoreCase(type, DatasetTableType.DB)) {
                 if (StringUtils.isEmpty(tableName)) {
@@ -141,7 +145,7 @@ public class DatasetDataManage {
             Provider provider = ProviderFactory.getDefaultProvider();
 
             DatasourceRequest datasourceRequest = new DatasourceRequest();
-            datasourceRequest.setDsList(Map.of(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
+            datasourceRequest.setDsList(Collections.singletonMap(datasourceSchemaDTO.getId(), datasourceSchemaDTO));
             String sql = TableUtils.tableName2Sql(datasourceSchemaDTO, tableName) + " LIMIT 0 OFFSET 0";
             // replace schema alias, trans dialect
             sql = Utils.replaceSchemaAlias(sql, datasourceRequest.getDsList());
@@ -245,7 +249,7 @@ public class DatasetDataManage {
         if (crossDs) {
             provider = ProviderFactory.getDefaultProvider();
         } else {
-            provider = ProviderFactory.getProvider(dsList.getFirst());
+            provider = ProviderFactory.getProvider(dsList.get(0));
         }
 
         // 解析 sortFields：使用 buildFieldName 后与内层 union 输出一致的 dataeaseName，避免 ORDER BY 列名不存在
@@ -544,7 +548,7 @@ public class DatasetDataManage {
             return false;
         }
         String opType = asString(upstreamNode.get("operationType"));
-        if (!Arrays.asList("union", "sample", "deduplicate", "group").contains(opType)) {
+        if (!arrangeOperationService.supportsGraphPreviewOperation(opType)) {
             return false;
         }
 
@@ -609,8 +613,8 @@ public class DatasetDataManage {
         if ("union".equals(opType)) {
             return previewUnionGraphNode(datasetGroupInfoDTO, selectedNode, nodeMap, incomingMap, start, count, checkPermission);
         }
-        if (Arrays.asList("sample", "deduplicate", "group").contains(opType)) {
-            Map<String, Object> upstreamNode = resolveGraphDataNode(
+        if (arrangeOperationService.supportsDirectPreviewOperation(opType)) {
+            Map<String, Object> upstreamNode = arrangeOperationService.resolveGraphDataNode(
                     incomingMap.getOrDefault(asString(selectedNode.get("id")), Collections.emptyList()).stream().findFirst().orElse(null),
                     nodeMap, incomingMap, new HashSet<>());
             if (upstreamNode == null) {
@@ -639,8 +643,8 @@ public class DatasetDataManage {
         if (upstreamIds.size() != 2) {
             return null;
         }
-        Map<String, Object> leftNode = resolveGraphDataNode(upstreamIds.get(0), nodeMap, incomingMap, new HashSet<>());
-        Map<String, Object> rightNode = resolveGraphDataNode(upstreamIds.get(1), nodeMap, incomingMap, new HashSet<>());
+        Map<String, Object> leftNode = arrangeOperationService.resolveGraphDataNode(upstreamIds.get(0), nodeMap, incomingMap, new HashSet<>());
+        Map<String, Object> rightNode = arrangeOperationService.resolveGraphDataNode(upstreamIds.get(1), nodeMap, incomingMap, new HashSet<>());
         if (leftNode == null || rightNode == null) {
             return null;
         }
@@ -667,32 +671,17 @@ public class DatasetDataManage {
         List<String> leftKeys = leftFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
         List<String> rightKeys = rightFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
 
-        List<LinkedHashMap<String, Object>> mergedRows = new ArrayList<>(leftRows);
-        for (LinkedHashMap<String, Object> row : rightRows) {
-            LinkedHashMap<String, Object> mapped = new LinkedHashMap<>();
-            for (int i = 0; i < leftKeys.size(); i++) {
-                mapped.put(leftKeys.get(i), row.get(rightKeys.get(i)));
-            }
-            mergedRows.add(mapped);
-        }
-
         String unionMode = "all";
         Object cfgObj = unionNode.get("operationConfig");
-        if (cfgObj instanceof Map<?, ?> cfgMap && cfgMap.get("unionMode") != null) {
-            unionMode = String.valueOf(cfgMap.get("unionMode"));
+        if (cfgObj instanceof Map<?, ?>) {
+            Map<?, ?> cfgMap = (Map<?, ?>) cfgObj;
+            if (cfgMap.get("unionMode") != null) {
+                unionMode = String.valueOf(cfgMap.get("unionMode"));
+            }
         }
-        List<LinkedHashMap<String, Object>> finalRows = mergedRows;
-        if ("distinct".equalsIgnoreCase(unionMode)) {
-            Set<String> seen = new LinkedHashSet<>();
-            finalRows = mergedRows.stream().filter(row -> {
-                String sig = String.valueOf(JsonUtil.toJSONString(leftKeys.stream().map(key -> row.get(key)).collect(Collectors.toList())));
-                if (seen.contains(sig)) {
-                    return false;
-                }
-                seen.add(sig);
-                return true;
-            }).collect(Collectors.toList());
-        }
+        List<LinkedHashMap<String, Object>> finalRows = arrangeOperationService.mergeUnionRows(
+                leftRows, rightRows, leftKeys, rightKeys, unionMode
+        );
         return buildCustomPreviewResult(datasetGroupInfoDTO, leftFields, finalRows);
     }
 
@@ -707,8 +696,8 @@ public class DatasetDataManage {
         if (upstreamIds.size() != 2) {
             return null;
         }
-        Map<String, Object> leftNode = resolveGraphDataNode(upstreamIds.get(0), nodeMap, incomingMap, new HashSet<>());
-        Map<String, Object> rightNode = resolveGraphDataNode(upstreamIds.get(1), nodeMap, incomingMap, new HashSet<>());
+        Map<String, Object> leftNode = arrangeOperationService.resolveGraphDataNode(upstreamIds.get(0), nodeMap, incomingMap, new HashSet<>());
+        Map<String, Object> rightNode = arrangeOperationService.resolveGraphDataNode(upstreamIds.get(1), nodeMap, incomingMap, new HashSet<>());
         if (leftNode == null || rightNode == null) {
             return null;
         }
@@ -734,32 +723,15 @@ public class DatasetDataManage {
         List<String> leftKeys = leftFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
         List<String> rightKeys = rightFields.stream().map(this::resolveFieldKey).collect(Collectors.toList());
 
-        List<LinkedHashMap<String, Object>> mergedRows = new ArrayList<>(leftRows);
-        for (LinkedHashMap<String, Object> row : rightRows) {
-            LinkedHashMap<String, Object> mapped = new LinkedHashMap<>();
-            for (int i = 0; i < leftKeys.size(); i++) {
-                mapped.put(leftKeys.get(i), row.get(rightKeys.get(i)));
-            }
-            mergedRows.add(mapped);
-        }
-
         String unionMode = "all";
         Object cfgObj = unionNode.get("operationConfig");
-        if (cfgObj instanceof Map<?, ?> cfgMap && cfgMap.get("unionMode") != null) {
-            unionMode = String.valueOf(cfgMap.get("unionMode"));
+        if (cfgObj instanceof Map<?, ?>) {
+            Map<?, ?> cfgMap = (Map<?, ?>) cfgObj;
+            if (cfgMap.get("unionMode") != null) {
+                unionMode = String.valueOf(cfgMap.get("unionMode"));
+            }
         }
-        if ("distinct".equalsIgnoreCase(unionMode)) {
-            Set<String> seen = new LinkedHashSet<>();
-            return mergedRows.stream().filter(row -> {
-                String sig = String.valueOf(JsonUtil.toJSONString(leftKeys.stream().map(key -> row.get(key)).collect(Collectors.toList())));
-                if (seen.contains(sig)) {
-                    return false;
-                }
-                seen.add(sig);
-                return true;
-            }).collect(Collectors.toList());
-        }
-        return mergedRows;
+        return arrangeOperationService.mergeUnionRows(leftRows, rightRows, leftKeys, rightKeys, unionMode);
     }
 
     private Map<String, Object> previewSingleGraphNode(DatasetGroupInfoDTO datasetGroupInfoDTO,
@@ -859,16 +831,22 @@ public class DatasetDataManage {
                                                                             Map<String, Object> operationNode,
                                                                             List<LinkedHashMap<String, Object>> rows,
                                                                             List<DatasetTableFieldDTO> fields) {
-        if ("sample".equals(opType)) {
-            return applySampleRows(rows, operationNode);
+        return arrangeOperationService.applyDirectOperationPreview(opType, operationNode, rows, toArrangeFieldMeta(fields));
+    }
+
+    private List<ArrangeFieldMeta> toArrangeFieldMeta(List<DatasetTableFieldDTO> fields) {
+        if (CollectionUtils.isEmpty(fields)) {
+            return new ArrayList<>();
         }
-        if ("deduplicate".equals(opType)) {
-            return applyDeduplicateRows(rows, fields, operationNode);
-        }
-        if ("group".equals(opType)) {
-            return applyGroupRows(rows, fields, operationNode);
-        }
-        return rows;
+        return fields.stream().map(field -> {
+            ArrangeFieldMeta meta = new ArrangeFieldMeta();
+            meta.setId(field.getId() == null ? null : String.valueOf(field.getId()));
+            meta.setName(field.getName());
+            meta.setOriginName(field.getOriginName());
+            meta.setDataeaseName(field.getDataeaseName());
+            meta.setDeType(field.getDeType());
+            return meta;
+        }).collect(Collectors.toList());
     }
 
     @SuppressWarnings("unchecked")
@@ -942,11 +920,21 @@ public class DatasetDataManage {
             List<Double> values = valuesMap.getOrDefault(groupKey, Collections.emptyList());
             Object aggValue;
             switch (aggType) {
-                case "count" -> aggValue = values.size();
-                case "avg" -> aggValue = values.isEmpty() ? 0D : values.stream().mapToDouble(Double::doubleValue).average().orElse(0D);
-                case "max" -> aggValue = values.isEmpty() ? null : values.stream().mapToDouble(Double::doubleValue).max().orElse(0D);
-                case "min" -> aggValue = values.isEmpty() ? null : values.stream().mapToDouble(Double::doubleValue).min().orElse(0D);
-                default -> aggValue = values.isEmpty() ? 0D : values.stream().mapToDouble(Double::doubleValue).sum();
+                case "count":
+                    aggValue = values.size();
+                    break;
+                case "avg":
+                    aggValue = values.isEmpty() ? 0D : values.stream().mapToDouble(Double::doubleValue).average().orElse(0D);
+                    break;
+                case "max":
+                    aggValue = values.isEmpty() ? null : values.stream().mapToDouble(Double::doubleValue).max().orElse(0D);
+                    break;
+                case "min":
+                    aggValue = values.isEmpty() ? null : values.stream().mapToDouble(Double::doubleValue).min().orElse(0D);
+                    break;
+                default:
+                    aggValue = values.isEmpty() ? 0D : values.stream().mapToDouble(Double::doubleValue).sum();
+                    break;
             }
             LinkedHashMap<String, Object> row = new LinkedHashMap<>(base);
             row.put(aggField, aggValue);
@@ -957,7 +945,8 @@ public class DatasetDataManage {
 
     private List<DatasetTableFieldDTO> extractPreviewFields(Map<String, Object> previewData) {
         Object fieldObj = previewData.get("fields");
-        if (fieldObj == null && previewData.get("data") instanceof Map<?, ?> dataMap) {
+        if (fieldObj == null && previewData.get("data") instanceof Map<?, ?>) {
+            Map<?, ?> dataMap = (Map<?, ?>) previewData.get("data");
             fieldObj = dataMap.get("fields");
         }
         if (fieldObj == null) return new ArrayList<>();
@@ -966,7 +955,8 @@ public class DatasetDataManage {
 
     private List<LinkedHashMap<String, Object>> extractPreviewRows(Map<String, Object> previewData) {
         Object dataObj = previewData.get("data");
-        if (dataObj instanceof Map<?, ?> dataMap) {
+        if (dataObj instanceof Map<?, ?>) {
+            Map<?, ?> dataMap = (Map<?, ?>) dataObj;
             dataObj = dataMap.get("data");
         }
         if (dataObj == null) return new ArrayList<>();
@@ -1016,7 +1006,8 @@ public class DatasetDataManage {
 
     private List<String> parseFieldConfig(Object value) {
         if (value == null) return new ArrayList<>();
-        if (value instanceof List<?> list) {
+        if (value instanceof List<?>) {
+            List<?> list = (List<?>) value;
             return list.stream().filter(Objects::nonNull).map(String::valueOf).map(String::trim).filter(StringUtils::isNotBlank).collect(Collectors.toList());
         }
         return Arrays.stream(String.valueOf(value).split(",")).map(String::trim).filter(StringUtils::isNotBlank).collect(Collectors.toList());
@@ -1161,7 +1152,7 @@ public class DatasetDataManage {
         // sql 作为临时表，外层加上limit
         String sql;
         Provider provider = ProviderFactory.getProvider(datasourceSchemaDTO.getType());
-        if (Utils.isNeedOrder(List.of(datasourceSchemaDTO.getType()))) {
+        if (Utils.isNeedOrder(Collections.singletonList(datasourceSchemaDTO.getType()))) {
             // 先根据sql获取表字段
             String sqlField = SQLUtils.buildOriginPreviewSql(SqlPlaceholderConstants.TABLE_PLACEHOLDER, 0, 0);
 
@@ -1347,7 +1338,7 @@ public class DatasetDataManage {
             if (crossDs) {
                 provider = ProviderFactory.getDefaultProvider();
             } else {
-                provider = ProviderFactory.getProvider(dsList.getFirst());
+                provider = ProviderFactory.getProvider(dsList.get(0));
             }
 
             Field2SQLObj.field2sqlObj(sqlMeta, fields, allFields, crossDs, dsMap);
@@ -1379,7 +1370,7 @@ public class DatasetDataManage {
                     }
                 }
                 return !hasEmpty;
-            }).toList();
+            }).collect(Collectors.toList());
             List<String> previewData = new ArrayList<>();
             if (ObjectUtils.isNotEmpty(dataList)) {
                 List<String> tmpData = dataList.stream().map(ele -> (ObjectUtils.isNotEmpty(ele) && ele.length > 0) ? ele[0] : null).collect(Collectors.toList());
@@ -1401,7 +1392,7 @@ public class DatasetDataManage {
         for (List<String> l : list) {
             result.addAll(l);
         }
-        return result.stream().toList();
+        return result.stream().collect(Collectors.toList());
     }
 
     public List<Map<String, Object>> getFieldEnumObj(EnumValueRequest request) throws Exception {
@@ -1562,7 +1553,7 @@ public class DatasetDataManage {
             dto.setFieldId(field.getId() + "");
             dto.setIsTree(false);
             dto.setOperator("like");
-            dto.setValue(List.of(request.getSearchText()));
+            dto.setValue(Collections.singletonList(request.getSearchText()));
             extFilterList.add(dto);
         }
 
@@ -1584,7 +1575,7 @@ public class DatasetDataManage {
         if (crossDs) {
             provider = ProviderFactory.getDefaultProvider();
         } else {
-            provider = ProviderFactory.getProvider(dsList.getFirst());
+            provider = ProviderFactory.getProvider(dsList.get(0));
         }
 
         Field2SQLObj.field2sqlObj(sqlMeta, fields, allFields, crossDs, dsMap);
@@ -1617,7 +1608,7 @@ public class DatasetDataManage {
                 }
             }
             return !hasEmpty;
-        }).toList();
+        }).collect(Collectors.toList());
         Map<String, String[]> distinctData = new LinkedHashMap<>();
         for (String[] arr : dataList) {
             String key = Arrays.toString(arr);
@@ -1662,7 +1653,7 @@ public class DatasetDataManage {
 
         // 根据图表计算字段，获取数据集
         List<DatasetTableFieldDTO> allFields = new ArrayList<>();
-        Long id = Long.parseLong(idStrs.getFirst());
+        Long id = Long.parseLong(idStrs.get(0));
         DatasetTableFieldDTO field = datasetTableFieldManage.selectById(id);
         Long datasetGroupId = field.getDatasetGroupId();
         if (field.getChartId() != null) {
@@ -1686,7 +1677,7 @@ public class DatasetDataManage {
         Table2SQLObj.table2sqlobj(sqlMeta, null, "(" + sql + ")", crossDs);
 
         // 将 idStrs 转换为 Long 类型列表
-        List<Long> idLongs = idStrs.stream().map(Long::parseLong).toList();
+        List<Long> idLongs = idStrs.stream().map(Long::parseLong).collect(Collectors.toList());
         
         for (Long fieldId : idLongs) {
             DatasetTableFieldDTO f = datasetTableFieldManage.selectById(fieldId);
@@ -1720,7 +1711,7 @@ public class DatasetDataManage {
         if (crossDs) {
             provider = ProviderFactory.getDefaultProvider();
         } else {
-            provider = ProviderFactory.getProvider(dsList.getFirst());
+            provider = ProviderFactory.getProvider(dsList.get(0));
         }
 
         Field2SQLObj.field2sqlObj(sqlMeta, fields, allFields, crossDs, dsMap);
@@ -1755,7 +1746,7 @@ public class DatasetDataManage {
                 }
             }
             return !hasEmpty;
-        }).toList();
+        }).collect(Collectors.toList());
         List<BaseTreeNodeDTO> treeNodes = rows.stream().map(row -> buildTreeNode(row, pkSet)).flatMap(Collection::stream).collect(Collectors.toList());
         List<BaseTreeNodeDTO> tree = DatasetUtils.mergeDuplicateTree(treeNodes, "root");
         return tree;

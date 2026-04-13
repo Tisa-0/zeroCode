@@ -26,11 +26,12 @@ import io.dataease.extensions.view.dto.ChartExtFilterDTO;
 import io.dataease.extensions.view.dto.ChartExtRequest;
 import io.dataease.extensions.view.dto.SqlVariableDetails;
 import io.dataease.i18n.Translator;
+import io.dataease.independent.arrange.service.ArrangeJoinSqlService;
 import io.dataease.license.utils.LicenseUtil;
 import io.dataease.system.manage.CorePermissionManage;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.JsonUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -56,13 +57,15 @@ public class DatasetSQLManage {
 
     @Resource
     private CorePermissionManage corePermissionManage;
+    @Resource
+    private ArrangeJoinSqlService arrangeJoinSqlService;
 
     @Autowired(required = false)
     private PluginManageApi pluginManage;
 
     private static Logger logger = LoggerFactory.getLogger(DatasetSQLManage.class);
 
-    private static final List<String> NOT_FULL_DS = List.of("mysql", "mariadb", "Excel", "API");
+    private static final List<String> NOT_FULL_DS = Arrays.asList("mysql", "mariadb", "Excel", "API");
 
     private List<SqlVariableDetails> filterParameters(ChartExtRequest chartExtRequest, Long datasetTableId) {
         List<SqlVariableDetails> parameters = new ArrayList<>();
@@ -543,7 +546,7 @@ public class DatasetSQLManage {
             type = datasourceSchemaDTO.getType();
         }
 
-        if (Arrays.stream(DatasourceConfiguration.DatasourceType.values()).map(DatasourceConfiguration.DatasourceType::getType).toList().contains(type)) {
+        if (Arrays.stream(DatasourceConfiguration.DatasourceType.values()).map(DatasourceConfiguration.DatasourceType::getType).collect(Collectors.toList()).contains(type)) {
             DatasourceConfiguration.DatasourceType datasourceType = DatasourceConfiguration.DatasourceType.valueOf(type);
             DsTypeDTO dto = new DsTypeDTO();
             BeanUtils.copyBean(dto, datasourceType);
@@ -551,9 +554,9 @@ public class DatasetSQLManage {
         } else {
             if (LicenseUtil.licenseValid()) {
                 List<XpackPluginsDatasourceVO> xpackPluginsDatasourceVOS = pluginManage.queryPluginDs();
-                List<XpackPluginsDatasourceVO> list = xpackPluginsDatasourceVOS.stream().filter(ele -> StringUtils.equals(ele.getType(), type)).toList();
+                List<XpackPluginsDatasourceVO> list = xpackPluginsDatasourceVOS.stream().filter(ele -> StringUtils.equals(ele.getType(), type)).collect(Collectors.toList());
                 if (ObjectUtils.isNotEmpty(list)) {
-                    XpackPluginsDatasourceVO first = list.getFirst();
+                    XpackPluginsDatasourceVO first = list.get(0);
                     DsTypeDTO dto = new DsTypeDTO();
                     dto.setName(first.getName());
                     dto.setCatalog(first.getCategory());
@@ -580,22 +583,7 @@ public class DatasetSQLManage {
     }
 
     private String convertUnionTypeToSQL(String unionType) {
-        switch (unionType) {
-            case "1:1":
-            case "inner":
-                return " INNER JOIN ";
-            case "1:N":
-            case "left":
-                return " LEFT JOIN ";
-            case "N:1":
-            case "right":
-                return " RIGHT JOIN ";
-            case "N:N":
-            case "full":
-                return " FULL JOIN ";
-            default:
-                return " INNER JOIN ";
-        }
+        return arrangeJoinSqlService.unionTypeToSqlJoin(unionType);
     }
 
     private SQLObj getUnionTable(DatasetTableDTO currentDs, DatasetTableInfoDTO infoDTO, String tableSchema, int index, List<SqlVariableDetails> parameters, boolean isFromDataSet, boolean isCross, Map<Long, DatasourceSchemaDTO> dsMap) {

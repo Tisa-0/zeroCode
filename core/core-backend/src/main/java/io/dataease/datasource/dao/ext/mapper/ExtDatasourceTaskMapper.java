@@ -2,8 +2,11 @@ package io.dataease.datasource.dao.ext.mapper;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import io.dataease.datasource.dto.CoreDatasourceTaskDTO;
-import io.dataease.request.GridExample;
-import org.apache.ibatis.annotations.*;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Result;
+import org.apache.ibatis.annotations.Results;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
@@ -14,16 +17,11 @@ import java.util.List;
 @Mapper
 public interface ExtDatasourceTaskMapper {
 
-
-    @Select(
-            """     
-                    SELECT core_datasource.name as datasource_name,core_datasource_task.* , QRTZ_TRIGGERS.NEXT_FIRE_TIME as NEXT_FIRE_TIME
-                    FROM core_datasource_task
-                    left join core_datasource on core_datasource.id=core_datasource_task.ds_id
-                    left join QRTZ_TRIGGERS on core_datasource_task.id=QRTZ_TRIGGERS.TRIGGER_NAME
-                     ${ew.customSqlSegment}
-                             """
-    )
+    @Select("SELECT core_datasource.name as datasource_name,core_datasource_task.* , QRTZ_TRIGGERS.NEXT_FIRE_TIME as NEXT_FIRE_TIME " +
+            "FROM core_datasource_task " +
+            "left join core_datasource on core_datasource.id=core_datasource_task.ds_id " +
+            "left join QRTZ_TRIGGERS on core_datasource_task.id=QRTZ_TRIGGERS.TRIGGER_NAME " +
+            "${ew.customSqlSegment}")
     @Results(
             id = "taskWithTriggers",
             value = {
@@ -34,6 +32,5 @@ public interface ExtDatasourceTaskMapper {
             }
     )
     List<CoreDatasourceTaskDTO> taskWithTriggers(@Param("ew") QueryWrapper queryWrapper);
-
-
 }
+

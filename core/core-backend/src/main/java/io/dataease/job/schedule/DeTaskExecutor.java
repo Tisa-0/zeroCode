@@ -2,7 +2,7 @@ package io.dataease.job.schedule;
 
 import io.dataease.commons.utils.CronUtils;
 import io.dataease.license.config.XpackInteract;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.quartz.JobDataMap;
 import org.quartz.JobKey;

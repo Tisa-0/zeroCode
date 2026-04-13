@@ -59,7 +59,10 @@ const setCollapse = () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background:
+    radial-gradient(1200px 500px at 18% -12%, rgba(153, 198, 255, 0.28) 0%, rgba(153, 198, 255, 0) 70%),
+    radial-gradient(900px 420px at 92% -15%, rgba(137, 187, 255, 0.22) 0%, rgba(137, 187, 255, 0) 75%),
+    linear-gradient(180deg, #f7fbff 0%, #eef5ff 52%, #e9f1fd 100%);
   color: #1f2329;
 
   .layout-container {
@@ -100,7 +103,7 @@ const setCollapse = () => {
 
     .layout-main {
       flex: 1;
-      background-color: var(--MainBG, #f5f6f7);
+      background-color: var(--MainBG, #edf4ff);
       padding: 0;
     }
 

@@ -60,11 +60,7 @@ public class MybatisPlusGenerator {
     }
 
     private static String packageName() {
-        return new Object() {
-            public String getPackageName() {
-                String packageName = this.getClass().getPackageName();
-                return packageName;
-            }
-        }.getPackageName();
+        Package pkg = MybatisPlusGenerator.class.getPackage();
+        return pkg != null ? pkg.getName() : "";
     }
 }

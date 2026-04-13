@@ -2,8 +2,8 @@ package io.dataease.auth.interceptor;
 
 import io.dataease.utils.CommonBeanFactory;
 import io.dataease.utils.DeReflectUtil;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -14,6 +14,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component("deCorsInterceptor")
 public class CorsInterceptor implements HandlerInterceptor {
@@ -33,7 +34,7 @@ public class CorsInterceptor implements HandlerInterceptor {
     }
 
     public void addOriginList(List<String> list) {
-        List<String> strings = list.stream().filter(item -> !originList.contains(item)).toList();
+        List<String> strings = list.stream().filter(item -> !originList.contains(item)).collect(Collectors.toList());
         originList.addAll(strings);
     }
 
@@ -58,7 +59,7 @@ public class CorsInterceptor implements HandlerInterceptor {
             if (ObjectUtils.isNotEmpty(result)) {
                 List<String> list = (List<String>) result;
                 if (CollectionUtils.isNotEmpty(list)) {
-                    busiOriginList.addAll(list.stream().distinct().toList());
+                    busiOriginList.addAll(list.stream().distinct().collect(Collectors.toList()));
                 }
             }
         }

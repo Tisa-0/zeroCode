@@ -4,8 +4,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.io.Serial;
 import java.io.Serializable;
 
 @Schema(description = "分享列表过滤器")
@@ -13,7 +11,6 @@ import java.io.Serializable;
 @AllArgsConstructor
 @NoArgsConstructor
 public class VisualizationWorkbranchQueryRequest implements Serializable {
-    @Serial
     private static final long serialVersionUID = -3522243514336261778L;
 
     @Schema(description = "类型", requiredMode = Schema.RequiredMode.REQUIRED)

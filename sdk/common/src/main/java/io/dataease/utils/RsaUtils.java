@@ -5,7 +5,7 @@ import io.dataease.exception.DEException;
 import io.dataease.model.RSAModel;
 import io.dataease.rsa.dao.entity.CoreRsa;
 import io.dataease.rsa.manage.RsaManage;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.stereotype.Component;
@@ -125,8 +125,9 @@ public class RsaUtils {
             i++;
             offset = i * MAX_DECRYPT_BLOCK;
         }
+        String result = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.close();
-        return out.toString(StandardCharsets.UTF_8);
+        return result;
     }
 
     public static RSAModel generate() {

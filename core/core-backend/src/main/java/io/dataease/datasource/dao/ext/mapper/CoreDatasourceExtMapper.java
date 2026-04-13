@@ -11,10 +11,7 @@ import java.util.List;
 @Mapper
 public interface CoreDatasourceExtMapper {
 
-    @Select("""
-            select id, name, type, pid from core_datasource
-            ${ew.customSqlSegment}
-            """)
+    @Select("select id, name, type, pid from core_datasource ${ew.customSqlSegment}")
     List<DatasourceNodePO> query(@Param("ew") QueryWrapper queryWrapper);
 
 }

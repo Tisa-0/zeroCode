@@ -20,7 +20,7 @@ import io.dataease.operation.manage.CoreOptRecentManage;
 import io.dataease.utils.AuthUtils;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.TreeUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -28,6 +28,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 public class DataSourceManage {
@@ -68,7 +69,7 @@ public class DataSourceManage {
         List<DataSourceNodePO> pos = dataSourceExtMapper.selectList(queryWrapper);
         if (ObjectUtils.isEmpty(request.getLeaf()) || !request.getLeaf()) nodes.add(rootNode());
         if (CollectionUtils.isNotEmpty(pos)) {
-            nodes.addAll(pos.stream().map(this::convert).toList());
+            nodes.addAll(pos.stream().map(this::convert).collect(Collectors.toList()));
         }
         return TreeUtils.mergeTree(nodes, BusiNodeVO.class, false);
     }

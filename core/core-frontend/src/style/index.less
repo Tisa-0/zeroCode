@@ -5,7 +5,19 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
+  color-scheme: light;
+  --MainBG: #edf4ff;
+  --ed-color-primary: #4f88e8;
+  --ed-color-primary-light-3: #7faaf0;
+  --ed-color-primary-light-5: #9dc0f5;
+  --ed-color-primary-light-7: #c0d8fb;
+  --ed-color-primary-light-8: #d7e6fc;
+  --ed-color-primary-light-9: #e9f2ff;
+  --ed-color-primary-dark-2: #3f73ce;
+  --ed-border-color: #d9e6fb;
+  --ed-border-color-light: #e7effd;
+  --ed-fill-color-light: #f4f8ff;
+  --ed-menu-hover-bg-color: rgba(79, 136, 232, 0.14);
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -13,7 +25,10 @@
 }
 
 body {
-  background: #ffffff;
+  background:
+    radial-gradient(1200px 480px at 16% -15%, rgba(159, 201, 255, 0.25) 0%, rgba(159, 201, 255, 0) 75%),
+    radial-gradient(900px 420px at 90% -18%, rgba(143, 189, 255, 0.2) 0%, rgba(143, 189, 255, 0) 78%),
+    linear-gradient(180deg, #f8fbff 0%, #eef5ff 55%, #eaf2ff 100%);
 }
 
 * {
@@ -515,4 +530,27 @@ strong {
   div {
     overflow: hidden;
   }
+}
+
+#app {
+  height: 100%;
+}
+
+.ed-card,
+.ed-dialog,
+.ed-drawer,
+.ed-popover,
+.ed-message {
+  border: 1px solid #dce8fb;
+  box-shadow: 0 8px 24px rgba(74, 129, 210, 0.08);
+}
+
+.ed-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f9fcff 100%);
+}
+
+.ed-table,
+.ed-table-v2 {
+  --ed-table-header-bg-color: #f2f7ff;
+  --ed-table-row-hover-bg-color: #edf4ff !important;
 }

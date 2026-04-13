@@ -1,6 +1,6 @@
 package io.dataease.utils;
 
-import io.micrometer.common.util.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
@@ -19,7 +19,7 @@ public class CommonBeanFactory implements ApplicationContextAware {
 
     public static Object getBean(String beanName) {
         try {
-            return context != null && !StringUtils.isBlank(beanName) ? context.getBean(beanName) : null;
+            return context != null && StringUtils.isNotBlank(beanName) ? context.getBean(beanName) : null;
         } catch (BeansException e) {
             return null;
         }

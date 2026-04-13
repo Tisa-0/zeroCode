@@ -1,8 +1,8 @@
 package io.dataease.commons.utils;
 
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 
 import java.util.concurrent.*;
 

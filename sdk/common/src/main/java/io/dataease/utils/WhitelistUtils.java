@@ -5,6 +5,7 @@ import io.dataease.exception.DEException;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.core.env.Environment;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -20,7 +21,7 @@ public class WhitelistUtils {
         return contextPath;
     }
 
-    public static List<String> WHITE_PATH = List.of(
+    public static List<String> WHITE_PATH = Arrays.asList(
             "/login/localLogin",
             "/apisix/check",
             "/dekey",

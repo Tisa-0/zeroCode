@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * @Author Junjun
@@ -21,7 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ProviderFactory {
 
     public static Provider getProvider(String type) throws DEException {
-        List<String> list = Arrays.stream(DatasourceConfiguration.DatasourceType.values()).map(DatasourceConfiguration.DatasourceType::getType).toList();
+        List<String> list = Arrays.stream(DatasourceConfiguration.DatasourceType.values())
+                .map(DatasourceConfiguration.DatasourceType::getType)
+                .collect(Collectors.toList());
         if (list.contains(type)) {
             return SpringContextUtil.getApplicationContext().getBean("calciteProvider", Provider.class);
         }
@@ -36,20 +39,17 @@ public class ProviderFactory {
         return SpringContextUtil.getApplicationContext().getBean("calciteProvider", Provider.class);
     }
 
-
     private static final Map<String, DataEaseDatasourcePlugin> templateMap = new ConcurrentHashMap<>();
 
     public static Provider getInstance(String type) {
         if (!LicenseUtil.licenseValid()) DEException.throwException("插件功能只对企业版本可用！");
-        String key = type;
-        return templateMap.get(key);
+        return templateMap.get(type);
     }
 
     public static void loadPlugin(String type, DataEaseDatasourcePlugin plugin) {
         if (!LicenseUtil.licenseValid()) DEException.throwException("插件功能只对企业版本可用！");
-        String key = type;
-        if (templateMap.containsKey(key)) return;
-        templateMap.put(key, plugin);
+        if (templateMap.containsKey(type)) return;
+        templateMap.put(type, plugin);
         try {
             String moduleName = plugin.getPluginInfo().getModuleName();
             DataEasePluginFactory.loadTemplate(moduleName, plugin);
@@ -61,6 +61,9 @@ public class ProviderFactory {
 
     public static List<XpackPluginsDatasourceVO> getDsConfigList() {
         if (!LicenseUtil.licenseValid()) DEException.throwException("插件功能只对企业版本可用！");
-        return templateMap.values().stream().map(DataEaseDatasourcePlugin::getConfig).toList();
+        return templateMap.values().stream()
+                .map(DataEaseDatasourcePlugin::getConfig)
+                .collect(Collectors.toList());
     }
 }
+

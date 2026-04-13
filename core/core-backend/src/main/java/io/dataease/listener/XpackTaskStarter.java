@@ -3,7 +3,7 @@ package io.dataease.listener;
 import io.dataease.job.schedule.DeTaskExecutor;
 import io.dataease.license.utils.LicenseUtil;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;

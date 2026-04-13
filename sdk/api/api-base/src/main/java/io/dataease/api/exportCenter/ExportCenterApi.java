@@ -4,7 +4,7 @@ import com.github.xiaoymin.knife4j.annotations.ApiSupport;
 import io.dataease.api.exportCenter.vo.ExportTaskDTO;
 import io.dataease.auth.DeApiPath;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;

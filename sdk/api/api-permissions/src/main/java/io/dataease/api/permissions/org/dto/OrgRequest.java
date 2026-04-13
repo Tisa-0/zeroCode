@@ -4,8 +4,6 @@ import io.dataease.model.KeywordRequest;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-
-import java.io.Serial;
 import java.io.Serializable;
 
 
@@ -13,8 +11,6 @@ import java.io.Serializable;
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class OrgRequest extends KeywordRequest implements Serializable {
-
-    @Serial
     private static final long serialVersionUID = 1697526057837588192L;
     @Schema(description = "是否降序", requiredMode = Schema.RequiredMode.REQUIRED)
     private Boolean desc = true;

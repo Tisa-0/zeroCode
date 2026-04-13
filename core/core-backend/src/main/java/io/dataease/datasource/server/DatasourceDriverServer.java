@@ -13,7 +13,7 @@ import io.dataease.extensions.datasource.dto.DatasourceDTO;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.FileUtils;
 import io.dataease.utils.Md5Utils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.RequestMapping;

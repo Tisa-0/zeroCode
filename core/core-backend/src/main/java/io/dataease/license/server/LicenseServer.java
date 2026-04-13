@@ -5,7 +5,7 @@ import io.dataease.api.license.dto.LicenseRequest;
 import io.dataease.license.bo.F2CLicResult;
 import io.dataease.license.manage.CoreLicManage;
 import io.dataease.license.manage.F2CLicManage;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;

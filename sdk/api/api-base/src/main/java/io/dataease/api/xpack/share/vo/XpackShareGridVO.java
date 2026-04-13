@@ -6,8 +6,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.io.Serial;
 import java.io.Serializable;
 
 @Schema(description = "分享列表VO")
@@ -15,7 +13,6 @@ import java.io.Serializable;
 @AllArgsConstructor
 @NoArgsConstructor
 public class XpackShareGridVO implements Serializable {
-    @Serial
     private static final long serialVersionUID = -1633588323141385486L;
 
     @Schema(description = "分享ID")

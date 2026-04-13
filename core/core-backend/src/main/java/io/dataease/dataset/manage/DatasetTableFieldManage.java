@@ -17,7 +17,7 @@ import io.dataease.i18n.Translator;
 import io.dataease.utils.AuthUtils;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.IDUtils;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
@@ -239,7 +239,7 @@ public class DatasetTableFieldManage {
                 .filterColumnPermissions(fields, desensitizationList, id, userId)
                 .stream()
                 .sorted(Comparator.comparing(DatasetTableFieldDTO::getGroupType))
-                .toList();
+                .collect(Collectors.toList());
         tmp.forEach(ele -> ele.setDesensitized(desensitizationList.containsKey(ele.getDataeaseName())));
         return tmp;
     }
@@ -267,7 +267,7 @@ public class DatasetTableFieldManage {
                     return flag;
                 })
                 .sorted(Comparator.comparing(DatasetTableFieldDTO::getGroupType))
-                .toList();
+                .collect(Collectors.toList());
         tmp.forEach(ele -> ele.setDesensitized(desensitizationList.containsKey(ele.getDataeaseName())));
         return tmp;
     }

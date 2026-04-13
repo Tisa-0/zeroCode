@@ -4,16 +4,12 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
-
-import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 
 @Schema(description = "组织列表VO")
 @Data
 public class OrgPageVO implements Serializable {
-
-    @Serial
     private static final long serialVersionUID = -7788232223396601785L;
     @Schema(description = "ID")
     @JsonSerialize(using= ToStringSerializer.class)

@@ -33,6 +33,7 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static org.apache.calcite.sql.SqlKind.*;
 
@@ -544,16 +545,16 @@ public class SqlparserUtils {
 
                 String prefix = "";
                 String suffix = "";
-                if (Arrays.stream(DatasourceConfiguration.DatasourceType.values()).map(DatasourceConfiguration.DatasourceType::getType).toList().contains(value.getType())) {
+                if (Arrays.stream(DatasourceConfiguration.DatasourceType.values()).map(DatasourceConfiguration.DatasourceType::getType).collect(Collectors.toList()).contains(value.getType())) {
                     DatasourceConfiguration.DatasourceType datasourceType = DatasourceConfiguration.DatasourceType.valueOf(value.getType());
                     prefix = datasourceType.getPrefix();
                     suffix = datasourceType.getSuffix();
                 } else {
                     if (LicenseUtil.licenseValid()) {
                         List<XpackPluginsDatasourceVO> xpackPluginsDatasourceVOS = pluginManage.queryPluginDs();
-                        List<XpackPluginsDatasourceVO> list = xpackPluginsDatasourceVOS.stream().filter(ele -> StringUtils.equals(ele.getType(), value.getType())).toList();
+                        List<XpackPluginsDatasourceVO> list = xpackPluginsDatasourceVOS.stream().filter(ele -> StringUtils.equals(ele.getType(), value.getType())).collect(Collectors.toList());
                         if (ObjectUtils.isNotEmpty(list)) {
-                            XpackPluginsDatasourceVO first = list.getFirst();
+                            XpackPluginsDatasourceVO first = list.get(0);
                             prefix = first.getPrefix();
                             suffix = first.getSuffix();
                         } else {

@@ -4,8 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
-
-import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 
@@ -14,7 +12,6 @@ import java.util.List;
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class AreaNode implements Serializable {
-    @Serial
     private static final long serialVersionUID = -2285934203102231711L;
     @Schema(description = "ID")
     private String id;

@@ -5,7 +5,7 @@ import io.dataease.traffic.dao.entity.CoreApiTraffic;
 import io.dataease.traffic.dao.mapper.CoreApiTrafficMapper;
 import io.dataease.utils.IDUtils;
 import io.dataease.utils.LogUtil;
-import jakarta.annotation.Resource;
+import javax.annotation.Resource;
 import org.apache.commons.lang3.ObjectUtils;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;

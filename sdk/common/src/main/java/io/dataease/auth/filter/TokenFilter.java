@@ -3,9 +3,9 @@ package io.dataease.auth.filter;
 import io.dataease.auth.bo.TokenUserBO;
 import io.dataease.constant.AuthConstant;
 import io.dataease.utils.*;
-import jakarta.servlet.FilterConfig;
-import jakarta.servlet.*;
-import jakarta.servlet.http.HttpServletRequest;
+import javax.servlet.FilterConfig;
+import javax.servlet.*;
+import javax.servlet.http.HttpServletRequest;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;

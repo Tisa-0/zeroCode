@@ -2,12 +2,58 @@ import SockJS from 'sockjs-client/dist/sockjs.min.js'
 import Stomp from 'stompjs'
 import { useCache } from '@/hooks/web/useCache'
 import { useEmitt } from '@/hooks/web/useEmitt'
-const { wsCache } = useCache()
-let stompClient: Stomp.Client
-let timeInterval: NodeJS.Timer | null = null
 import dev from '../../config/dev'
+
+const { wsCache } = useCache()
 const env = import.meta.env
 const basePath = env.VITE_API_BASEPATH
+
+let stompClient: Stomp.Client
+let timeInterval: NodeJS.Timer | null = null
+let socketEndpoint: string | null | undefined
+let probingEndpoint = false
+
+const ensureTrailingSlash = (value: string) => (value.endsWith('/') ? value : value + '/')
+
+const buildRuntimePrefix = () => {
+  if (window.DataEaseBi?.baseUrl) {
+    return ensureTrailingSlash(window.DataEaseBi.baseUrl)
+  }
+  const href = window.location.href
+  let prefix = href.substring(0, href.indexOf('#'))
+  if (env.MODE === 'dev') {
+    prefix = dev.server.proxy[basePath].target + '/'
+  }
+  return ensureTrailingSlash(prefix)
+}
+
+const resolveSocketEndpoint = async (prefix: string) => {
+  if (socketEndpoint !== undefined) return socketEndpoint
+  if (probingEndpoint) return null
+  probingEndpoint = true
+  const candidates = [prefix + 'websocket', prefix + 'de2api/websocket']
+  try {
+    for (const candidate of candidates) {
+      try {
+        const res = await fetch(`${candidate}/info?t=${Date.now()}`, {
+          method: 'GET',
+          credentials: 'include'
+        })
+        if (res.ok) {
+          socketEndpoint = candidate
+          return socketEndpoint
+        }
+      } catch {
+        // ignore and try next endpoint
+      }
+    }
+    socketEndpoint = null
+    console.info('[websocket] endpoint not found, skip realtime connection')
+    return null
+  } finally {
+    probingEndpoint = false
+  }
+}
 
 export default {
   install() {
@@ -21,28 +67,19 @@ export default {
         event: 'report-notice-call'
       }
     ]
+
     function isLoginStatus() {
       return wsCache.get('user.token') && wsCache.get('user.uid')
     }
 
-    function connection() {
-      if (!isLoginStatus()) {
-        return
-      }
-      if (stompClient && stompClient.connected) {
-        return
-      }
-      let prefix = '/'
-      if (window.DataEaseBi?.baseUrl) {
-        prefix = window.DataEaseBi.baseUrl
-      } else {
-        const href = window.location.href
-        prefix = href.substring(0, href.indexOf('#'))
-        if (env.MODE === 'dev') {
-          prefix = dev.server.proxy[basePath].target + '/'
-        }
-      }
-      const socket = new SockJS(prefix + 'websocket?userId=' + wsCache.get('user.uid'))
+    async function connection() {
+      if (!isLoginStatus()) return
+      if (stompClient && stompClient.connected) return
+      const prefix = buildRuntimePrefix()
+      const endpoint = await resolveSocketEndpoint(prefix)
+      if (!endpoint) return
+
+      const socket = new SockJS(endpoint + '?userId=' + wsCache.get('user.uid'))
       stompClient = Stomp.over(socket)
       const heads = {
         userId: wsCache.get('user.uid')
