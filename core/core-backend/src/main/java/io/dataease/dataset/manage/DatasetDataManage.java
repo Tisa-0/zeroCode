@@ -1,7 +1,6 @@
 package io.dataease.dataset.manage;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import io.dataease.api.chart.dto.DeSortField;
 import io.dataease.api.dataset.dto.*;
 import io.dataease.api.dataset.union.DatasetGroupInfoDTO;
 import io.dataease.api.dataset.union.DatasetTableInfoDTO;

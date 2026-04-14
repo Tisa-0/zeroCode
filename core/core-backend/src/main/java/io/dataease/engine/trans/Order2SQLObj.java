@@ -1,6 +1,6 @@
 package io.dataease.engine.trans;
 
-import io.dataease.api.chart.dto.DeSortField;
+import io.dataease.api.dataset.dto.DeSortField;
 import io.dataease.extensions.datasource.dto.DatasourceSchemaDTO;
 import io.dataease.extensions.datasource.dto.DatasetTableFieldDTO;
 import io.dataease.engine.constant.DeTypeConstants;

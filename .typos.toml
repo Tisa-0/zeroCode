@@ -8,4 +8,3 @@ ws = "ws"
 guid = "guid"
 yoy = "yoy"
 [files]
-extend-exclude = ["mapFiles/**"]

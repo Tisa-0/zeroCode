@@ -1,14 +1,12 @@
 import { defineStore } from 'pinia'
 import { store } from '../index'
-import { queryTreeApi } from '@/api/visualization/dataVisualization'
 import { getDatasetTree } from '@/api/dataset'
 import { listDatasources } from '@/api/datasource'
 import type { BusiTreeRequest, BusiTreeNode } from '@/models/tree/TreeNode'
 import { pathValid } from '@/store/modules/permission'
-import { useCache } from '@/hooks/web/useCache'
 import { useAppStoreWithOut } from '@/store/modules/app'
 const appStore = useAppStoreWithOut()
-const { wsCache } = useCache()
+
 export interface InnerInteractive {
   rootManage: boolean
   anyManage: boolean
@@ -21,9 +19,18 @@ interface InteractiveState {
   data: Record<number, InnerInteractive>
 }
 
-const apiMap = [queryTreeApi, queryTreeApi, getDatasetTree, listDatasources]
+type InteractiveFlag = 'dataset' | 'datasource'
+type InteractiveItem = {
+  busiFlag: InteractiveFlag
+  index: number
+  path: string
+  method: (param: BusiTreeRequest) => Promise<any>
+}
 
-const busiFlagMap = ['dashboard', 'dataV', 'dataset', 'datasource']
+const interactiveItems: InteractiveItem[] = [
+  { busiFlag: 'dataset', index: 2, path: '/data/dataset', method: getDatasetTree },
+  { busiFlag: 'datasource', index: 3, path: '/data/datasource', method: listDatasources }
+]
 
 export const interactiveStore = defineStore('interactive', {
   state: (): InteractiveState => ({
@@ -48,8 +55,11 @@ export const interactiveStore = defineStore('interactive', {
   },
   actions: {
     async setInteractive(param: BusiTreeRequest) {
-      const flag = busiFlagMap.findIndex(item => item === param.busiFlag)
-      if (!hasMenuAuth(flag) && !window.DataEaseBi && !appStore.getIsIframe) {
+      const item = interactiveItems.find(it => it.busiFlag === (param.busiFlag as InteractiveFlag))
+      if (!item) {
+        return []
+      }
+      if (!hasMenuAuth(item.path) && !window.DataEaseBi && !appStore.getIsIframe) {
         const tempData: InnerInteractive = {
           rootManage: false,
           anyManage: false,
@@ -57,41 +67,22 @@ export const interactiveStore = defineStore('interactive', {
           leafNodeCount: 0,
           menuAuth: false
         }
-        this.data[flag] = tempData
-        if (flag === 0) {
-          wsCache.set('panel-weight', {})
-        }
-        if (flag === 1) {
-          wsCache.set('screen-weight', {})
-        }
+        this.data[item.index] = tempData
         return []
       }
-      const method = apiMap[flag]
-      const res = await method(param)
-      this.data[flag] = convertInteractive(res)
-      if (flag === 0) {
-        wsCache.set('panel-weight', convertLocalStorage(this.data[flag]))
-      }
-      if (flag === 1) {
-        wsCache.set('screen-weight', convertLocalStorage(this.data[flag]))
-      }
+      const res = await item.method(param)
+      this.data[item.index] = convertInteractive(res)
       return res
     },
     async initInteractive(refresh?: boolean) {
-      let index = 4
-      while (index--) {
-        if (!this.data[index] || refresh) {
-          const param: BusiTreeRequest = {
-            busiFlag: busiFlagMap[index]
-          }
-          await this.setInteractive(param)
+      for (const item of interactiveItems) {
+        if (!this.data[item.index] || refresh) {
+          await this.setInteractive({ busiFlag: item.busiFlag } as BusiTreeRequest)
         }
       }
     },
     clear() {
       this.data = {}
-      wsCache.set('panel-weight', {})
-      wsCache.set('screen-weight', {})
     }
   }
 })
@@ -125,35 +116,4 @@ const convertInteractive = (list): InnerInteractive => {
   return result
 }
 
-const hasMenuAuth = (flag: number): boolean => {
-  let path = '/panel/index'
-  if (flag === 1) {
-    path = '/screen/index'
-  } else if (flag === 2) {
-    path = '/data/dataset'
-  } else if (flag === 3) {
-    path = '/data/datasource'
-  }
-  const valid = pathValid(path)
-  return valid
-}
-
-const convertLocalStorage = (data?: InnerInteractive) => {
-  if (!data?.leafNodeCount) {
-    return {}
-  }
-  const result = {}
-  const treeNodes = data.treeNodes
-  const stack = [...treeNodes]
-  while (stack.length) {
-    const node = stack.pop()
-    if (node.leaf) {
-      const { id, weight } = node
-      result[id] = weight
-    }
-    if (node.children?.length) {
-      node.children.forEach(kid => stack.push(kid))
-    }
-  }
-  return result
-}
+const hasMenuAuth = (path: string): boolean => pathValid(path)
