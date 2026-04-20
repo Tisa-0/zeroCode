@@ -104,6 +104,7 @@ const route = useRoute()
 const { push } = useRouter()
 const workspaceActiveTab = ref('current')
 const workspaceTabs = ref<WorkspaceTabItem[]>([])
+const panelActiveTab = ref<'dataset' | 'datasource'>('dataset')
 const workspaceRootTitle = ref((route.query.title as string) || '未命名数据集')
 const workspaceRootSnapshot = ref<WorkspaceSnapshot | null>(null)
 const quotaTableHeight = ref(238)
@@ -396,37 +397,56 @@ const preloadDatasourceTables = () => {
 }
 
 const fetchWorkspaceSnapshotById = async (datasetId: string): Promise<WorkspaceSnapshot | null> => {
-  const barRes = await barInfoApi(datasetId)
-  if (!barRes || !barRes['id']) return null
-  const res = await getDatasetDetails(datasetId)
-  return buildWorkspaceSnapshotFromDataset(res)
+  try {
+    let res = await getDatasetDetails(datasetId)
+    if (!res || !(res as Record<string, any>)['id']) {
+      const barRes = await barInfoApi(datasetId)
+      const realId = String((barRes as any)?.id || '')
+      if (realId) {
+        res = await getDatasetDetails(realId)
+      }
+    }
+    if (!res || !(res as Record<string, any>)['id']) return null
+    return buildWorkspaceSnapshotFromDataset(res)
+  } catch (error) {
+    console.error('load workspace dataset snapshot failed', error)
+    return null
+  }
 }
 
 const activateWorkspaceTab = async (targetKey: string) => {
   if (targetKey === workspaceActiveTab.value) return
+  const previousKey = workspaceActiveTab.value
   saveActiveWorkspaceSnapshot()
-  if (targetKey === 'current') {
-    workspaceActiveTab.value = 'current'
-    if (workspaceRootSnapshot.value) {
-      await applyWorkspaceSnapshot(workspaceRootSnapshot.value)
-    }
-    return
-  }
-  const targetTab = workspaceTabs.value.find(item => item.key === targetKey)
-  if (!targetTab) return
-  workspaceActiveTab.value = targetKey
-  if (!targetTab.snapshot) {
-    const snapshot = await fetchWorkspaceSnapshotById(targetTab.datasetId)
-    if (!snapshot) {
-      workspaceTabs.value = workspaceTabs.value.filter(item => item.key !== targetKey)
+  try {
+    if (targetKey === 'current') {
       workspaceActiveTab.value = 'current'
+      if (workspaceRootSnapshot.value) {
+        await applyWorkspaceSnapshot(workspaceRootSnapshot.value)
+      }
       return
     }
-    targetTab.snapshot = snapshot
-    targetTab.loaded = true
-    targetTab.title = snapshot.datasetName || targetTab.title
+    const targetTab = workspaceTabs.value.find(item => item.key === targetKey)
+    if (!targetTab) return
+    workspaceActiveTab.value = targetKey
+    if (!targetTab.snapshot) {
+      const snapshot = await fetchWorkspaceSnapshotById(targetTab.datasetId)
+      if (!snapshot) {
+        workspaceTabs.value = workspaceTabs.value.filter(item => item.key !== targetKey)
+        workspaceActiveTab.value = previousKey || 'current'
+        ElMessage.error('数据集加载失败或超时，请稍后重试')
+        return
+      }
+      targetTab.snapshot = snapshot
+      targetTab.loaded = true
+      targetTab.title = snapshot.datasetName || targetTab.title
+    }
+    await applyWorkspaceSnapshot(targetTab.snapshot)
+  } catch (error) {
+    console.error('activate workspace tab failed', error)
+    workspaceActiveTab.value = previousKey || 'current'
+    ElMessage.error('切换数据集失败，请稍后重试')
   }
-  await applyWorkspaceSnapshot(targetTab.snapshot)
 }
 
 const openWorkspaceDatasetTab = async (datasetId: string, title: string) => {
@@ -1308,9 +1328,13 @@ const initEdite = async () => {
     copyId = embeddedStore.datasetCopyId || copyId
   }
   if (copyId || id) {
-    const barRes = await barInfoApi(copyId || id)
-    if (!barRes || !barRes['id']) {
-      return
+    try {
+      const barRes = await barInfoApi(copyId || id)
+      if (barRes && barRes['id']) {
+        id = barRes['id'] as any
+      }
+    } catch (e) {
+      console.warn('barInfoApi failed, continue with details api', e)
     }
   }
   if (datasourceId) {
@@ -1387,9 +1411,12 @@ const handleEditNode = node => {
 // 鍙屽嚮榛勮壊鏁版嵁闆嗚妭鐐癸細鍦ㄥ綋鍓嶇紪杈戝櫒涓墦寮€鍐呴儴宸ヤ綔鍖?tab
 const handleEditDatasetNode = async node => {
   if (node.type !== 'dataset') return
-  const datasetId = String((node as any).datasetId || node.id || '')
+  const datasetId = getReferenceDatasetId(node) || String((node as any).datasetId || node.id || '')
   const title = node.tableName || node.name || '未命名数据集'
-  if (!datasetId) return
+  if (!datasetId) {
+    ElMessage.error('未找到可编辑的数据集 ID')
+    return
+  }
   await openWorkspaceDatasetTab(datasetId, title)
 }
 
@@ -3664,19 +3691,32 @@ const getDsIconName = data => {
         :style="{ width: LeftWidth + 'px' }"
       >
         <div class="table-list-top">
-          <p class="select-ds">
-            {{ t('auth.dataset') }} / {{ t('auth.datasource') }}
+          <div class="left-panel-tabs">
+            <div class="left-panel-tabs-inner">
+              <span
+                class="left-panel-tab"
+                :class="{ active: panelActiveTab === 'dataset' }"
+                @click="panelActiveTab = 'dataset'"
+              >
+                {{ t('auth.dataset') }}
+              </span>
+              <span
+                class="left-panel-tab"
+                :class="{ active: panelActiveTab === 'datasource' }"
+                @click="panelActiveTab = 'datasource'"
+              >
+                {{ t('auth.datasource') }}
+              </span>
+            </div>
             <span class="left-outlined">
               <el-icon style="color: #1f2329" @click="showLeft = false">
                 <Icon name="icon_left_outlined" />
               </el-icon>
             </span>
-          </p>
+          </div>
 
-          <!-- 鍙傝€冨浘甯冨眬锛氬乏鍙充袱鍒?-->
           <div class="panel-two-col">
-            <!-- 宸﹀垪锛氭垜鐨勬暟鎹泦 -->
-            <div class="panel-col">
+            <div v-show="panelActiveTab === 'dataset'" class="panel-col">
               <div class="panel-col-header">
                 <span class="panel-col-title">{{ t('auth.dataset') }}</span>
                 <el-dropdown trigger="click" @command="panelDatasetSortChange">
@@ -3766,9 +3806,7 @@ const getDsIconName = data => {
                 </div>
               </div>
             </div>
-
-            <!-- 鍙冲垪锛氭暟鎹簮 -->
-            <div class="panel-col">
+            <div v-show="panelActiveTab === 'datasource'" class="panel-col">
               <div class="panel-col-header">
                 <span class="panel-col-title">{{ t('auth.datasource') }}</span>
               </div>
@@ -4919,6 +4957,59 @@ const getDsIconName = data => {
           cursor: auto;
           font-size: 16px;
           color: var(--deTextPlaceholder, #646a73);
+        }
+      }
+
+      .left-panel-tabs {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        position: relative;
+      }
+
+      .left-panel-tabs-inner {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .left-panel-tab {
+        font-size: 14px;
+        line-height: 20px;
+        color: #646a73;
+        cursor: pointer;
+        padding: 4px 6px;
+        border-radius: 4px;
+        user-select: none;
+      }
+
+      .left-panel-tab.active {
+        color: rgb(25, 175, 93);
+        font-weight: 600;
+        background: rgba(25, 175, 93, 0.08);
+      }
+
+      .left-outlined {
+        position: absolute;
+        font-size: 12px;
+        right: -30px;
+        top: -2px;
+        height: 24px;
+        border: 1px solid #dee0e3;
+        width: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fff;
+        box-shadow: 0px 5px 10px 0px #1f23291a;
+        z-index: 10;
+
+        &:hover {
+          .ed-icon {
+            color: var(--ed-color-primary, #3370ff) !important;
+          }
         }
       }
 

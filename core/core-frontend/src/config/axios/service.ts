@@ -47,6 +47,9 @@ export interface AxiosInstanceWithLoading extends AxiosInstance {
 
 const getTimeOut = () => {
   let time = 100
+  if (import.meta.env.DEV) {
+    return Math.max(1, Math.floor((config.request_timeout || 60000) / 1000))
+  }
   const url = PATH_URL + '/sysParameter/requestTimeOut'
   const xhr = new XMLHttpRequest()
   xhr.onreadystatechange = () => {

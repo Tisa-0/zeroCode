@@ -1,5 +1,6 @@
 export default {
   server: {
+    strictPort: true,
     proxy: {
       '/api/f': {
         target: 'http://localhost:8100',

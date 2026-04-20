@@ -162,7 +162,7 @@ export const getDatasetPreview = async (id): Promise<FieldData> => {
 }
 
 export const getDatasetDetails = async (id): Promise<Dataset> => {
-  return request.post({ url: `/datasetTree/details/${id}`, data: {} }).then(res => {
+  return request.post({ url: `/datasetTree/details/${id}`, data: {}, timeout: 180000 }).then(res => {
     return res?.data
   })
 }
